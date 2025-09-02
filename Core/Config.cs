@@ -2451,6 +2451,43 @@ namespace Core
                 }
             }
 
+            private static string WVDFilePath = "0";
+            /// <summary>
+            /// Widevine设备文件路径
+            /// 默认值："0"
+            /// </summary>
+            public string _WVDFilePath
+            {
+                get => WVDFilePath;
+                set
+                {
+                    if (value != WVDFilePath)
+                    {
+                        WVDFilePath = value;
+                        OnPropertyChanged();
+                        ModifyConfig(value);
+                    }
+                }
+            }
+
+            private static string WidevineLicenseUrl = "";
+            /// <summary>
+            /// Widevine License Server地址
+            /// 默认值：空字符串
+            /// </summary>
+            public string _WidevineLicenseUrl
+            {
+                get => WidevineLicenseUrl;
+                set
+                {
+                    if (value != WidevineLicenseUrl)
+                    {
+                        WidevineLicenseUrl = value;
+                        OnPropertyChanged();
+                        ModifyConfig(value);
+                    }
+                }
+            }
             #endregion
 
         }

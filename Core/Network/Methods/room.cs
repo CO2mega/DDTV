@@ -56,7 +56,7 @@ namespace Core.Network.Methods
 
         private static PlayInfo_Class _PlayInfo(long RoomId,long Definition)
         {
-            string url = GetRidURL($"{Config.Core_RunConfig._LiveDomainName}/xlive/web-room/v2/index/getRoomPlayInfo?room_id={RoomId}&protocol=0,1&format=0,1,2&codec=0,1,2&qn={Definition}&platform=web&ptype=8");
+            string url = GetRidURL($"{Config.Core_RunConfig._LiveDomainName}/xlive/web-room/v2/index/getRoomPlayInfo?room_id={RoomId}&protocol=0,1&format=0,1,2&codec=0,1,2&qn={Definition}&platform=web&ptype=8&supported_drms=0,1,2,3");
             string WebText = Get.GetBody(url, true,ContentType:"application/vnd.apple.mpegurl");
             PlayInfo_Class hLSHostClass = new();
             try
@@ -251,6 +251,11 @@ namespace Core.Network.Methods
                 public object hdr_qn { get; set; }
                 public long dolby_type { get; set; }
                 public string attr_name { get; set; }
+                // DRM相关字段
+                public bool drm { get; set; } = false;
+                public List<object> drm_key_systems { get; set; } = new List<object>();
+                public int drm_type { get; set; } = 0;
+                public string pssh { get; set; } = string.Empty;
             }
 
             public class Url_Info

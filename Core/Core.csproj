@@ -30,4 +30,10 @@
     <PackageReference Include="ZXing.Net.Bindings.ImageSharp" Version="0.16.14" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Reference Include="cswidevine">
+      <HintPath>..\..\cswidevine\cswidevine\bin\Debug\net8.0\cswidevine.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
 </Project>

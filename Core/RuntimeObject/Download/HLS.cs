@@ -56,8 +56,8 @@ namespace Core.RuntimeObject.Download
                 long DownloadFileSizeForThisTask = 0;
                 using (FileStream fs = new FileStream(File, FileMode.Append))
                 {
-
                     HostClass hostClass = new();
+                    
                     while (!GetHlsHost_avc(card, ref hostClass))
                     {
                         hlsState = HandleHlsError(card, hostClass);

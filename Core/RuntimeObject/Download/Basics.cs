@@ -381,7 +381,11 @@ namespace Core.RuntimeObject.Download
                 host = urlInfo.host,
                 base_url = codec.base_url.Replace($"{codec.base_url.Split('/')[codec.base_url.Split('/').Length - 1]}", ""),
                 uri_name = codec.base_url.Split('/')[codec.base_url.Split('/').Length - 1],
-                extra = urlInfo.extra
+                extra = urlInfo.extra,
+                drm = codec.drm,
+                drm_key_systems = codec.drm_key_systems != null ? codec.drm_key_systems : new List<object>(),
+                drm_type = codec.drm_type,
+                pssh = codec.pssh != null ? codec.pssh.ToString() : string.Empty
             };
             return hostClass;
         }
@@ -564,6 +568,22 @@ namespace Core.RuntimeObject.Download
             /// 房间付费类型
             /// </summary>
             public List<long> all_special_types { get; set; } = new List<long>();
+            /// <summary>
+            /// DRM加密标记
+            /// </summary>
+            public bool drm { get; set; } = false;
+            /// <summary>
+            /// DRM密钥系统列表
+            /// </summary>
+            public List<object> drm_key_systems { get; set; } = new List<object>();
+            /// <summary>
+            /// DRM类型
+            /// </summary>
+            public int drm_type { get; set; } = 0;
+            /// <summary>
+            /// PSSH数据
+            /// </summary>
+            public string pssh { get; set; } = string.Empty;
             public EXTM3U eXTM3U { get; set; } = new();
             public class EXTM3U
             {

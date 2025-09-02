@@ -631,4 +631,15 @@ public partial class SettingsPage
             MessageBox.Show("请确保输入的端口号正确");
         }
     }
+
+    private void SelectWVDFile_Click(object sender, RoutedEventArgs e)
+    {
+        var openFileDialog = new Microsoft.Win32.OpenFileDialog();
+        openFileDialog.Filter = "Widevine设备文件 (*.wvd)|*.wvd";
+        openFileDialog.Title = "选择Widevine设备文件 (.wvd)";
+        if (openFileDialog.ShowDialog() == true)
+        {
+            Config.Core_RunConfig._WVDFilePath = openFileDialog.FileName;
+        }
+    }
 }
