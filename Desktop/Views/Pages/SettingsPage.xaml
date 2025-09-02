@@ -780,6 +780,40 @@
                                 </Grid>
                             </StackPanel>
                         </ui:CardExpander>
+
+                        <ui:CardExpander >
+                            <ui:CardExpander.Header>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <Grid Grid.Column="0">
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                        </Grid.RowDefinitions>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <ui:TextBlock Grid.Row="0" Grid.Column="0" FontSize="16" FontTypography="Body" Text="设置特定功能" />
+
+                                    </Grid>
+                                </Grid>
+                            </ui:CardExpander.Header>
+                            <StackPanel Margin="24,0.5,24,0">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <ui:TextBox Grid.Column="0" Name="WVDFilePath_TextBox"  Margin="0,0,30,0" PlaceholderText="请输入WVD文件路径" Text="{Binding _WVDFilePath,Mode=OneWay}"/>
+                                    <ui:Button Grid.Row="1" Grid.Column="1" Margin="0,0,20,0" Content="选择文件" Click="SelectWVDFile_Click"/>
+                                </Grid>
+                            </StackPanel>
+                        </ui:CardExpander>
+
                     </StackPanel>
                 </ui:CardExpander>
                 <ui:CardExpander Grid.Row="4" Icon="{ui:SymbolIcon CalendarPlay20}">
@@ -845,7 +879,7 @@
                                             <ColumnDefinition Width="Auto" />
                                         </Grid.ColumnDefinitions>
                                         <ui:TextBlock Grid.Row="0" Grid.Column="0" FontSize="16" FontTypography="Body" Text="播放窗弹幕" />
-                                        <ui:TextBlock Grid.Row="1" Grid.Column="0" FontSize="12" Foreground="{ui:ThemeResource TextFillColorSecondaryBrush}" Text="针对标准播放窗口的弹幕显示相关设置内容" />
+                                        <ui:TextBlock Grid.Row="1" Grid.Column="0" FontSize="12" Foreground="{ui:ThemeResource TextFillColorSecondaryBrush}" Text="针对标准播放窗口的弹幕显示相关设置" />
                                     </Grid>
 
                                 </Grid>

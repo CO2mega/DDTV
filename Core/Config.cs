@@ -35,8 +35,8 @@ namespace Core
                     varMap.Add(fieldInfo.Name, fieldInfo);
                     if (!fieldInfo.Name.ToLower().Contains("Access"))
                     {
-                        string ConfigText = $"从配置文件获取参数初始化：{fieldInfo.Name}={fieldInfo.GetValue(null)}";
-                        Log.Info(nameof(Config), ConfigText);
+                        //string ConfigText = $"从配置文件获取参数初始化：{fieldInfo.Name}={fieldInfo.GetValue(null)}";
+                        //Log.Info(nameof(Config), ConfigText);
                     }
                 }
             Thread.Sleep(500);
@@ -208,6 +208,11 @@ namespace Core
                             try
                             {
                                 varMap[item.Split('=')[0]].SetValue(null, item.Split('=')[1]);
+                                if (!item.Split('=')[0].ToLower().Contains("access"))
+                                {
+                                    string ConfigText = $"从配置文件获取参数初始化：{item.Split('=')[0]}={item.Split('=')[1]}";
+                                    Log.Info(nameof(ReadConfiguration), ConfigText);
+                                }
                             }
                             catch (Exception) { }
                         }
@@ -2434,6 +2439,43 @@ namespace Core
                 }
             }
 
+            private static string WVDFilePath = "0";
+            /// <summary>
+            /// Widevine设备文件路径
+            /// 默认值："0"
+            /// </summary>
+            public string _WVDFilePath
+            {
+                get => WVDFilePath;
+                set
+                {
+                    if (value != WVDFilePath)
+                    {
+                        WVDFilePath = value;
+                        OnPropertyChanged();
+                        ModifyConfig(value);
+                    }
+                }
+            }
+
+            private static string WidevineLicenseUrl = "";
+            /// <summary>
+            /// Widevine License Server地址
+            /// 默认值：空字符串
+            /// </summary>
+            public string _WidevineLicenseUrl
+            {
+                get => WidevineLicenseUrl;
+                set
+                {
+                    if (value != WidevineLicenseUrl)
+                    {
+                        WidevineLicenseUrl = value;
+                        OnPropertyChanged();
+                        ModifyConfig(value);
+                    }
+                }
+            }
             #endregion
 
         }

@@ -21,6 +21,7 @@ namespace Core.Tools
                 long MediaSequence = 0;
                 double Targetduration = 0;
                 string[] list = str.Split('\n');
+                // 只处理widevine KEYFORMAT
                 for (int i = 0; i < list.Length; i++)
                 {
                     if (list[i].Contains("#EXT-X-VERSION"))
@@ -47,13 +48,37 @@ namespace Core.Tools
                     {
                         hostClass.eXTM3U.Map_URI = list[i].Split('=')[1].Replace("\"", "");
                     }
+                    else if (list[i].StartsWith("#EXT-X-KEY"))
+                    {
+                        // 只处理widevine KEYFORMAT
+                        var parts = list[i].Substring("#EXT-X-KEY:".Length).Split(',');
+                        string drmUri = null, drmKeyFormat = null, drmPssh = null;
+                        foreach (var part in parts)
+                        {
+                            var kv = part.Split('=');
+                            if (kv.Length < 2) continue;
+                            var key = kv[0].Trim();
+                            var value = kv[1].Trim('"');
+                            if (key == "KEYFORMAT") drmKeyFormat = value;
+                            if (key == "URI") drmUri = value;
+                        }
+                        if (drmKeyFormat == "urn:uuid:edef8ba9-79d6-4ace-a3c8-27dcd51d21ed" && drmUri != null && drmUri.StartsWith("data:text/plain;base64,"))
+                        {
+                            string base64 = drmUri.Substring("data:text/plain;base64,".Length);
+                            byte[] psshBytes = Convert.FromBase64String(base64);
+                            drmPssh = BitConverter.ToString(psshBytes).Replace("-", "");
+                            hostClass.drm = true;
+                            hostClass.drm_type = 1;
+                            hostClass.pssh = drmPssh ?? string.Empty;
+                        }
+                    }
                     else if (list[i].Contains("#EXTINF"))
                     {
                         double.TryParse(list[i].Split(':')[1].Split(',')[0], out double Duration);
                         hostClass.eXTM3U.eXTINFs.Add(new()
                         {
                             Duration = Duration,
-                            Aux = list[i - 1].Split(':')[1],
+                            Aux = list[i - 1].Contains(":") ? list[i - 1].Split(':')[1] : string.Empty,
                             FileName = list[i + 1].Split('.')[0],
                             ExtensionName = list[i + 1].Split(".")[1]
                         });
