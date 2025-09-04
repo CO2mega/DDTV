@@ -23,7 +23,8 @@ namespace Core.RuntimeObject.Download
             DlwnloadTaskState hlsState = DlwnloadTaskState.Default;
             string File = string.Empty;
             Stopwatch stopWatch = new Stopwatch();
-            await Task.Run(() =>
+            var cts = new CancellationTokenSource();
+            await Task.Run(async () =>
             {
                 InitializeDownload(card,RoomCardClass.TaskType.HLS_AVC);
                 card.DownInfo.DownloadFileList.CurrentOperationVideoFile = string.Empty;
@@ -39,6 +40,7 @@ namespace Core.RuntimeObject.Download
                     
                     while (!GetHlsHost_avc(card, ref hostClass))
                     {
+                        if (cts.Token.IsCancellationRequested) return;
                         hlsState = HandleHlsError(card, hostClass);
                         if (!Reconnection && hlsState == DlwnloadTaskState.NoHLSStreamExists)//初次任务，等待HLS流生成，等待时间根据配置文件来
                         {
@@ -63,7 +65,21 @@ namespace Core.RuntimeObject.Download
                                 return;
                         }
                     }
+                    //Log.Info(nameof(DlwnloadHls_avc_mp4), $"TEST");
+                    //// 新增：根据 is_sp 判断是否为付费直播，付费直播直接切换到DRM 录制
+                    //if (card.is_sp != null && card.is_sp.Value == 1)
+                    //{
+                    //    Log.Info(nameof(DlwnloadHls_avc_mp4), $"[{card.Name}({card.RoomId})]检测到付费直播，自动切换到DRM录制");
+                    //    await HLS_DRM.DlwnloadHlsDrm_avc_mp4(card, Reconnection);
+                    //    cts.Cancel();
+                    //    return;
+                    //}
+                    //if (cts.Token.IsCancellationRequested) return;
+                    //Log.Info(nameof(DlwnloadHls_avc_mp4), $"TEST2");
                     //Log.Info(nameof(DlwnloadHls_avc_mp4), $"[{card.Name}({card.RoomId})]开始监听重连");
+
+                    //不切了，根据drm_key_systems判断是否为付费直播
+
                     List<(long size, DateTime time)> values = new();
                     bool InitialRequest = true;
                     long currentLocation = 0;
@@ -129,6 +145,56 @@ namespace Core.RuntimeObject.Download
                             {
                                 if (InitialRequest)
                                 {
+                                    // 新增：根据drm_key_systems判断是否为付费直播，付费直播直接切换到DRM解密流程
+                                    bool isPaidLive = false;
+                                    string licenseServer = null;
+                                    if (hostClass.drm_key_systems != null && hostClass.drm_key_systems.Count > 0)
+                                    {
+                                        Log.Info(nameof(DlwnloadHls_avc_mp4), $"TEST2");
+                                        foreach (var drm in hostClass.drm_key_systems)
+                                        {
+                                            var drmDict = drm as IDictionary<string, object>;
+                                            if (drmDict != null && drmDict.ContainsKey("type") && drmDict["type"].ToString().ToLower().Contains("widevine"))
+                                            {
+                                                isPaidLive = true;
+                                                if (drmDict.ContainsKey("license_url"))
+                                                {
+                                                    licenseServer = drmDict["license_url"].ToString();
+                                                }
+                                                break;
+                                            }
+                                        }
+                                    }
+                                    if (isPaidLive)
+                                    {
+                                        string pssh = hostClass.pssh;
+                                        string wvdFile = Config.Core_RunConfig._WVDFilePath;
+                                        var drmResult = HLS_DRM.GetWidevineKeyByExternal(wvdFile, pssh, licenseServer);
+                                        if (drmResult != null)
+                                        {
+                                            HLS_DRM.WriteShakaPackagerCommand(File, drmResult.keyIdHex, drmResult.keyHex);
+                                        }
+                                        foreach (var item in hostClass.eXTM3U.eXTINFs)
+                                        {
+                                            if (long.TryParse(item.FileName, out long index) && (index > currentLocation || currentLocation == 0))
+                                            {
+                                                byte[] encryptedSegment = DownloadSegmentForDrm(hostClass.host + hostClass.base_url + item.FileName + "." + item.ExtensionName + "?" + hostClass.extra);
+                                                fs.Write(encryptedSegment, 0, encryptedSegment.Length);
+                                                downloadSizeForThisCycle += encryptedSegment.Length;
+                                                currentLocation = index;
+                                            }
+                                        }
+                                        hostClass.eXTM3U.eXTINFs = new();
+                                        values.Add((downloadSizeForThisCycle, DateTime.Now));
+                                        //计算这个Task下载的文件大小
+                                        DownloadFileSizeForThisTask += downloadSizeForThisCycle;
+                                        //计算下载速度和任务大小
+                                        values = UpdateDownloadSpeed(values, card, downloadSizeForThisCycle);
+                                        hlsState = DlwnloadTaskState.Recording;
+                                        InitialRequest = false;
+                                        continue;
+                                    }
+                                    // 原有分片下载逻辑
                                     downloadSizeForThisCycle += WriteToFile(fs, $"{hostClass.host}{hostClass.base_url}{hostClass.eXTM3U.Map_URI}?{hostClass.extra}");
                                 }
                                 if (currentLocation != 0 && Core.Config.Core_RunConfig._ReconnectAnchorReStream)
@@ -216,7 +282,8 @@ namespace Core.RuntimeObject.Download
                             return;
                     }
                 }
-            });
+            }, cts.Token);
+            
             card.DownInfo.DownloadSize = 0;
             stopWatch.Stop();
             return (hlsState, File);
@@ -343,5 +410,17 @@ namespace Core.RuntimeObject.Download
             return false;
         }
 
+        /// <summary>
+        /// 新增：DRM分片下载工具方法
+        /// </summary>
+        /// <param name="url"></param>
+        /// <returns></returns>
+        private static byte[] DownloadSegmentForDrm(string url)
+        {
+            using (var httpClient = new System.Net.Http.HttpClient())
+            {
+                return httpClient.GetByteArrayAsync(url).GetAwaiter().GetResult();
+            }
+        }
     }
 }
