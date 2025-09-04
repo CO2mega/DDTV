@@ -204,7 +204,7 @@ namespace Core.RuntimeObject.Download
             {
                 return false;
             }
-            hostClass = _GetHost(roomCard.RoomId, "http_hls", "fmp4", "avc", Core.Config.Core_RunConfig._DefaultResolution);
+            hostClass = _GetHost(roomCard.RoomId, "http_hls", "fmp4", "avc", Core.Config.Core_RunConfig._DefaultResolution);         
             if (hostClass.Effective)
             {
                 string Inp = $"{hostClass.host}{hostClass.base_url}{hostClass.uri_name}{hostClass.extra}";

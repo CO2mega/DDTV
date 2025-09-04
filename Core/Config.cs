@@ -291,7 +291,7 @@ namespace Core
                             foreach (var item in roomListDiscard.data)
                             {
                                 Count.Total++;
-                                RoomCardClass? roomCard = new();
+                                RoomCardClass roomCard = null;
                                 if (_Room.GetCardForUID(item.UID, ref roomCard))
                                 {
                                     Count.Success++;
