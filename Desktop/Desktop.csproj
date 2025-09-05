@@ -73,6 +73,7 @@
 
   <ItemGroup>
     <Folder Include="plugins\MKVToolnix\" />
+	 <Folder Include="plugins\cswidevine\" />
     <Folder Include="Resource\" />
   </ItemGroup>
 
