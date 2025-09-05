@@ -173,57 +173,82 @@ namespace Core.RuntimeObject.Download
                             }
                             else
                             {
+                                
                                 if (InitialRequest)
                                 {
-                                    // 新增：根据drm_key_systems判断是否为付费直播，付费直播直接切换到DRM解密流程
-                                    bool isPaidLive = false;
+                                    // 新增：根据drm_key_systems判断DRM类型并分别处理
+                                    int drmType = 0;
                                     string licenseServer = null;
-                                    if (hostClass.drm_key_systems != null && hostClass.drm_key_systems.Count > 0)
+                                    string certificateUrl = null;
+                                    string drmUri = null;
+                                    foreach (var drm in hostClass.drm_key_systems ?? new List<object>())
                                     {
-                                        Log.Info(nameof(DlwnloadHls_avc_mp4), $"TEST2");
-                                        foreach (var drm in hostClass.drm_key_systems)
+                                        drmType = 0;
+                                        licenseServer = null;
+                                        certificateUrl = null;
+                                        drmUri = null;
+
+                                        if (drm is IDictionary<string, object> drmDict)
                                         {
-                                            var drmDict = drm as IDictionary<string, object>;
-                                            if (drmDict != null && drmDict.ContainsKey("type") && drmDict["type"].ToString().ToLower().Contains("widevine"))
-                                            {
-                                                isPaidLive = true;
-                                                if (drmDict.ContainsKey("license_url"))
+                                            if (drmDict.TryGetValue("name", out var nameObj))
+                                                drmType = Convert.ToInt32(nameObj);
+                                            licenseServer = drmDict.ContainsKey("license_url") ? drmDict["license_url"]?.ToString() : null;
+                                            certificateUrl = drmDict.ContainsKey("certificate_url") ? drmDict["certificate_url"]?.ToString() : null;
+                                            drmUri = drmDict.ContainsKey("drm_uri") ? drmDict["drm_uri"]?.ToString() : null;
+                                        }
+                                        else if (drm is System.Text.Json.JsonElement drmElem)
+                                        {
+                                            if (drmElem.TryGetProperty("name", out var nameProp))
+                                                drmType = nameProp.GetInt32();
+                                            if (drmElem.TryGetProperty("license_url", out var licenseProp))
+                                                licenseServer = licenseProp.GetString();
+                                            if (drmElem.TryGetProperty("certificate_url", out var certProp))
+                                                certificateUrl = certProp.GetString();
+                                            if (drmElem.TryGetProperty("drm_uri", out var uriProp))
+                                                drmUri = uriProp.GetString();
+                                        }
+
+                                        switch (drmType)
+                                        {
+                                            case 2: // widevine
+                                                Log.Info(nameof(DlwnloadHls_avc_mp4), $"检测到Widevine DRM，尝试解密录制");
+                                                string pssh = hostClass.pssh;
+                                                string wvdFile = Config.Core_RunConfig._WVDFilePath;
+                                                var drmResult = HLS_DRM.GetWidevineKeyByExternal(wvdFile, pssh, licenseServer);
+                                                if (drmResult != null)
                                                 {
-                                                    licenseServer = drmDict["license_url"].ToString();
+                                                    HLS_DRM.WriteShakaPackagerCommand(File, drmResult.keyIdHex, drmResult.keyHex);
                                                 }
+                                                foreach (var item in hostClass.eXTM3U.eXTINFs)
+                                                {
+                                                    if (long.TryParse(item.FileName, out long index) && (index > currentLocation || currentLocation == 0))
+                                                    {
+                                                        byte[] encryptedSegment = DownloadSegmentForDrm(hostClass.host + hostClass.base_url + item.FileName + "." + item.ExtensionName + "?" + hostClass.extra);
+                                                        fs.Write(encryptedSegment, 0, encryptedSegment.Length);
+                                                        downloadSizeForThisCycle += encryptedSegment.Length;
+                                                        currentLocation = index;
+                                                    }
+                                                }
+                                                hostClass.eXTM3U.eXTINFs = new();
+                                                values.Add((downloadSizeForThisCycle, DateTime.Now));
+                                                DownloadFileSizeForThisTask += downloadSizeForThisCycle;
+                                                values = UpdateDownloadSpeed(values, card, downloadSizeForThisCycle);
+                                                hlsState = DlwnloadTaskState.Recording;
+                                                InitialRequest = false;
+                                                goto endDRMLoop;
                                                 break;
-                                            }
-                                        }
+                                            case 1: // fairplay
+                                                Log.Info(nameof(DlwnloadHls_avc_mp4), $"检测到Fairplay DRM，暂不支持自动解密录制");
+                                                break;
+                                            case 3: // bilidrm
+                                                Log.Info(nameof(DlwnloadHls_avc_mp4), $"检测到BiliDRM，暂不支持自动解密录制");
+                                                break;
+                                            default:
+                                                Log.Info(nameof(DlwnloadHls_avc_mp4), $"检测到未知DRM类型: {drmType}");
+                                                break;
+                                        }                               
                                     }
-                                    if (isPaidLive)
-                                    {
-                                        string pssh = hostClass.pssh;
-                                        string wvdFile = Config.Core_RunConfig._WVDFilePath;
-                                        var drmResult = HLS_DRM.GetWidevineKeyByExternal(wvdFile, pssh, licenseServer);
-                                        if (drmResult != null)
-                                        {
-                                            HLS_DRM.WriteShakaPackagerCommand(File, drmResult.keyIdHex, drmResult.keyHex);
-                                        }
-                                        foreach (var item in hostClass.eXTM3U.eXTINFs)
-                                        {
-                                            if (long.TryParse(item.FileName, out long index) && (index > currentLocation || currentLocation == 0))
-                                            {
-                                                byte[] encryptedSegment = DownloadSegmentForDrm(hostClass.host + hostClass.base_url + item.FileName + "." + item.ExtensionName + "?" + hostClass.extra);
-                                                fs.Write(encryptedSegment, 0, encryptedSegment.Length);
-                                                downloadSizeForThisCycle += encryptedSegment.Length;
-                                                currentLocation = index;
-                                            }
-                                        }
-                                        hostClass.eXTM3U.eXTINFs = new();
-                                        values.Add((downloadSizeForThisCycle, DateTime.Now));
-                                        //计算这个Task下载的文件大小
-                                        DownloadFileSizeForThisTask += downloadSizeForThisCycle;
-                                        //计算下载速度和任务大小
-                                        values = UpdateDownloadSpeed(values, card, downloadSizeForThisCycle);
-                                        hlsState = DlwnloadTaskState.Recording;
-                                        InitialRequest = false;
-                                        continue;
-                                    }
+                                endDRMLoop:;
                                     // 原有分片下载逻辑
                                     downloadSizeForThisCycle += WriteToFile(fs, $"{hostClass.host}{hostClass.base_url}{hostClass.eXTM3U.Map_URI}?{hostClass.extra}");
                                 }

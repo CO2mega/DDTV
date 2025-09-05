@@ -20,7 +20,7 @@ namespace Core.RuntimeObject.Download
             {
                 StartInfo = new ProcessStartInfo
                 {
-                    FileName = "plugins/cswidevine/cswidevine.exe",
+                    FileName = "./Plugins/cswidevine/cswidevine.exe",
                     Arguments = $"license \"{wvdFile}\" \"{pssh}\" \"{licenseServer}\"",
                     RedirectStandardOutput = true,
                     UseShellExecute = false,
