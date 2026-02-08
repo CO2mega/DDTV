@@ -30,6 +30,11 @@ namespace Update
         public static string Bucket = "ddtv5-update";
         private static AmazonS3Client ossClient = null;
 
+        private static readonly object consoleLock = new object();
+        private static int completedFiles = 0;
+        private const int 最大并发下载数 = 10;
+        private static Dictionary<int, DownloadProgress> downloadProgressList = new Dictionary<int, DownloadProgress>();
+        private static int progressStartLine = 0;
 
         public static void Main(string[] args)
         {
@@ -58,85 +63,14 @@ namespace Update
             Environment.CurrentDirectory = AppDomain.CurrentDomain.BaseDirectory;//将当前路径从 引用路径 修改至 程序所在目录
             Console.WriteLine($"当前工作路径:{Environment.CurrentDirectory}");
             Console.WriteLine(Environment.CurrentDirectory);
-            Dictionary<string, (string Name, string FilePath, long Size)> map = new Dictionary<string, (string Name, string FilePath, long Size)>();
-            HttpClient _httpClient = new HttpClient();
-            _httpClient.Timeout = new TimeSpan(0, 0, 10);
-            _httpClient.DefaultRequestHeaders.Referrer = new Uri("https://update5.ddtv.pro");
+            
             if (checkVersion())
             {
-                string DL_FileListUrl = $"/{type}/{(Isdev ? "dev" : "release")}/{type}_Update.json";
-                string web = Get(DL_FileListUrl);
-                var B = JsonConvert.DeserializeObject<FileInfoClass>(web);
-                if (B != null)
+                var fileList = GetUpdateFileList();
+                if (fileList != null && fileList.Count > 0)
                 {
-                    foreach (var item in B.files)
-                    {
-                        //文件更新状态（是否需要更新）
-                        bool FileUpdateStatus = true;
-
-                        string FilePath = $"../../{item.FilePath}";
-                        if (Isdocker)
-                        {
-                            FilePath = FilePath.Replace("bin/", "DDTV/");
-                        }
-
-                        if (item.FilePath.Contains("bin/Update"))
-                        {
-                            FileUpdateStatus = false;
-                        }
-                        else
-                        {
-                            if (File.Exists(FilePath))
-                            {
-                                string Md5 = MD5Hash.GetMD5HashFromFile(FilePath);
-                                if (Md5 == item.FileMd5)
-                                {
-                                    FileUpdateStatus = false;
-                                }
-                            }
-                        }
-
-                        if (FileUpdateStatus)
-                        {
-                            map.Add($"/{type}/{(Isdev ? "dev" : "release")}/{item.FilePath}", (item.FileName, FilePath, item.Size));
-                        }
-                    }
-                    int i = 1;
-                    foreach (var item in map)
-                    {
-                        long bytes = item.Value.Size;
-                        string size = (bytes >= 1 << 30) ? $"{(double)bytes / (1 << 30):F2} GB" : (bytes >= 1 << 20) ? $"{(double)bytes / (1 << 20):F2} MB" : (bytes >= 1 << 10) ? $"{(double)bytes / (1 << 10):F2} KB" : $"{bytes} Bytes";
-                        Console.Write($"进度：{i}/{map.Count}  |  文件大小{size}，开始更新文件【{item.Value.Name}】.......");
-                        string directoryPath = Path.GetDirectoryName(item.Value.FilePath);
-                        if (!Directory.Exists(directoryPath))
-                        {
-                            Directory.CreateDirectory(directoryPath);
-                        }
-                        bool dl_ok = false;
-                        int time = 10;
-                        do
-                        {
-                            try
-                            {
-                                dl_ok = DownloadFileAsync(item.Key, item.Value.FilePath, time);
-                            }
-                            catch (Exception)
-                            {
-
-                            }
-                            if (time < 36000)
-                            {
-                                time = time * 2;
-                            }
-                            else
-                            {
-                                Console.WriteLine($" | 【{item.Value.Name}】超时跳过");
-                                break;
-                            }
-                        } while (!dl_ok);
-                        Console.WriteLine($" | 更新文件【{item.Value.Name}】成功");
-                        i++;
-                    }
+                    Console.WriteLine($"共需要更新 {fileList.Count} 个文件，开始并发下载（最大并发数：{最大并发下载数}）...");
+                    DownloadFilesAsync(fileList).Wait();
                     Console.WriteLine($"更新完成");
                     if (OperatingSystem.IsWindows())
                     {
@@ -156,7 +90,7 @@ namespace Update
                             return;
                         }
                     }
-                    Console.Write($"更新DDTV到{type}-{R_ver}完成，请手动启动DDTV");
+                    Console.Write($"更新DDTV到{type}-{R_ver}完成，自动启动DDTV失败，请手动启动");
                     if (Isdocker)
                         Console.WriteLine($"，按任意键继续");
                 }
@@ -173,6 +107,431 @@ namespace Update
                 return;
 
             Console.ReadKey();
+        }
+
+        public static List<FileDownloadInfo> GetUpdateFileList()
+        {
+            // 获取远程文件列表并生成需要更新的文件信息列表
+            // 返回的 List 中每一项包含下载 URL、本地文件路径、文件名和大小
+            try
+            {
+                string DL_FileListUrl = $"/{type}/{(Isdev ? "dev" : "release")}/{type}_Update.json";
+                string web = Get(DL_FileListUrl);
+                var B = JsonConvert.DeserializeObject<FileInfoClass>(web);
+                
+                if (B == null) return null;
+                var updateList = new List<FileDownloadInfo>();
+                
+                foreach (var item in B.files)
+                {
+                    bool FileUpdateStatus = true;
+
+                    string FilePath = $"../../{item.FilePath}";
+                    if (Isdocker)
+                    {
+                        FilePath = FilePath.Replace("bin/", "DDTV/");
+                    }
+
+                    if (item.FilePath.Contains("bin/Update"))
+                    {
+                        FileUpdateStatus = false;
+                    }
+                    else
+                    {
+                        if (File.Exists(FilePath))
+                        {
+                            string Md5 = MD5Hash.GetMD5HashFromFile(FilePath);
+                            if (Md5 == item.FileMd5)
+                            {
+                                FileUpdateStatus = false;
+                            }
+                        }
+                    }
+
+                    if (FileUpdateStatus)
+                    {
+                        string downloadUrl = $"/{type}/{(Isdev ? "dev" : "release")}/{item.FilePath}";
+                        updateList.Add(new FileDownloadInfo
+                        {Url = downloadUrl,FileName = item.FileName,FilePath = FilePath,Size = item.Size});
+                    }
+                }
+
+                return updateList;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"获取文件列表失败: {ex.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// 并发下载文件列表。首轮每个文件最多重试 3 次，首轮完成后会对失败文件进行一次统一重试。
+        /// 显示实时进度，最大并发由 `最大并发下载数` 控制。
+        /// </summary>
+        public static async Task DownloadFilesAsync(List<FileDownloadInfo> fileList)
+        {
+            completedFiles = 0;
+            int totalFiles = fileList.Count;
+            var semaphore = new SemaphoreSlim(最大并发下载数);
+            var tasks = new List<Task<bool>>();
+            var failedFiles = new List<FileDownloadInfo>();
+            int taskId = 0;
+
+            Console.WriteLine();
+            progressStartLine = Console.CursorTop;
+            
+            for (int i = 0; i < 最大并发下载数; i++)
+            {
+                Console.WriteLine();
+            }
+
+            for (int idx = 0; idx < fileList.Count; idx++)
+            {
+                var item = fileList[idx];
+                await semaphore.WaitAsync();
+                int currentTaskId = taskId++;
+                int sequenceNumber = idx + 1;
+
+                var task = Task.Run(async () =>
+                {
+                    try
+                    {
+                        var progress = new DownloadProgress
+                        {
+                            FileName = item.FileName,
+                            TotalSize = item.Size,
+                            TaskId = currentTaskId % 最大并发下载数,
+                            Sequence = sequenceNumber
+                        };
+
+                        lock (consoleLock)
+                        {
+                            downloadProgressList[progress.TaskId] = progress;
+                        }
+
+                        string directoryPath = Path.GetDirectoryName(item.FilePath);
+                        if (!string.IsNullOrEmpty(directoryPath) && !Directory.Exists(directoryPath))
+                        {
+                            Directory.CreateDirectory(directoryPath);
+                        }
+
+                        bool dl_ok = false;
+                        int timeout = 10;
+                        int retryCount = 0;
+                        const int maxRetries = 3;
+
+                        while (!dl_ok && retryCount < maxRetries)
+                        {
+                            try
+                            {
+                                dl_ok = await DownloadFileWithProgressAsync(item.Url, item.FilePath, timeout, progress);
+                            }
+                            catch (Exception ex)
+                            {
+                                dl_ok = false;
+                                lock (consoleLock)
+                                {
+                                    progress.Status = $"错误: {ex.Message.Substring(0, Math.Min(30, ex.Message.Length))}";
+                                    UpdateProgressDisplay();
+                                }
+                            }
+
+                            if (!dl_ok)
+                            {
+                                retryCount++;
+                                if (retryCount < maxRetries)
+                                {
+                                    timeout = Math.Min(timeout * 2, 60);
+                                    await Task.Delay(1000);
+                                }
+                            }
+                        }
+
+                        lock (consoleLock)
+                        {
+                            if (dl_ok)
+                            {
+                                Interlocked.Increment(ref completedFiles);
+                                progress.Status = "完成";
+                                progress.Percentage = 100;
+                            }
+                            else
+                            {
+                                progress.Status = "失败,稍后重试";
+                                failedFiles.Add(item);
+                            }
+                            UpdateProgressDisplay();
+                        }
+
+                        await Task.Delay(500);
+                        return dl_ok;
+                    }
+                    finally
+                    {
+                        semaphore.Release();
+                    }
+                });
+
+                tasks.Add(task);
+            }
+
+            var updateTask = Task.Run(async () =>
+            {
+                while (completedFiles < totalFiles && tasks.Any(t => !t.IsCompleted))
+                {
+                    await Task.Delay(200);
+                    lock (consoleLock)
+                    {
+                        UpdateProgressDisplay();
+                    }
+                }
+            });
+
+            await Task.WhenAll(tasks);
+            await updateTask;
+
+            Console.SetCursorPosition(0, progressStartLine + 最大并发下载数);
+            Console.WriteLine($"\n首轮下载完成！成功: {completedFiles}/{totalFiles}");
+
+            if (failedFiles.Count > 0)
+            {
+                Console.WriteLine($"\n开始重试 {failedFiles.Count} 个失败文件...");
+                await Task.Delay(2000);
+                
+                var retryTasks = new List<Task<bool>>();
+                taskId = 0;
+
+                for (int idx = 0; idx < failedFiles.Count; idx++)
+                {
+                    var item = failedFiles[idx];
+                    await semaphore.WaitAsync();
+                    int currentTaskId = taskId++;
+                    int sequenceNumber = fileList.IndexOf(item) + 1;
+
+                    var retryTask = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            var progress = new DownloadProgress
+                            {
+                                FileName = item.FileName,
+                                TotalSize = item.Size,
+                                TaskId = currentTaskId % 最大并发下载数,
+                                Sequence = sequenceNumber
+                            };
+
+                            lock (consoleLock)
+                            {
+                                downloadProgressList[progress.TaskId] = progress;
+                            }
+
+                            bool dl_ok = await DownloadFileWithProgressAsync(item.Url, item.FilePath, 30, progress);
+
+                            lock (consoleLock)
+                            {
+                                if (dl_ok)
+                                {
+                                    Interlocked.Increment(ref completedFiles);
+                                    progress.Status = "完成";
+                                    progress.Percentage = 100;
+                                }
+                                else
+                                {
+                                    progress.Status = "最终失败";
+                                }
+                                UpdateProgressDisplay();
+                            }
+
+                            await Task.Delay(300);
+                            return dl_ok;
+                        }
+                        finally
+                        {
+                            semaphore.Release();
+                        }
+                    });
+
+                    retryTasks.Add(retryTask);
+                }
+
+                await Task.WhenAll(retryTasks);
+                Console.SetCursorPosition(0, progressStartLine + 最大并发下载数);
+                Console.WriteLine($"\n最终结果：成功 {completedFiles}/{totalFiles}，失败 {totalFiles - completedFiles} 个文件");
+            }
+        }
+
+        private static void UpdateProgressDisplay()
+        {
+            for (int i = 0; i < 最大并发下载数; i++)
+            {
+                Console.SetCursorPosition(0, progressStartLine + i);
+                
+                    if (downloadProgressList.ContainsKey(i))
+                {
+                    var progress = downloadProgressList[i];
+                    string bar = GenerateProgressBar(progress.Percentage, 30);
+                    string speed = FormatSpeed(progress.Speed);
+                    string downloaded = FormatSize(progress.DownloadedSize);
+                    string total = FormatSize(progress.TotalSize);
+                    string status = progress.Status ?? "下载中";
+                    int seq = progress.Sequence > 0 ? progress.Sequence : i + 1;
+                    
+                    string line = $"[{seq}] {bar} {progress.Percentage:F1}% | {downloaded}/{total} | {speed} | {status} | {TruncateString(progress.FileName, 20)}";
+                    Console.Write(line.PadRight(Console.WindowWidth - 1));
+                }
+                else
+                {
+                    Console.Write("".PadRight(Console.WindowWidth - 1));
+                }
+            }
+        }
+
+        private static string GenerateProgressBar(double percentage, int width)
+        {
+            int filled = (int)(percentage / 100.0 * width);
+            return new string('█', filled) + new string(' ', width - filled);
+        }
+
+        private static string FormatSpeed(long bytesPerSecond)
+        {
+            if (bytesPerSecond <= 0) return "0 B/s";
+            if (bytesPerSecond >= 1 << 20) return $"{(double)bytesPerSecond / (1 << 20):F2} MB/s";
+            if (bytesPerSecond >= 1 << 10) return $"{(double)bytesPerSecond / (1 << 10):F2} KB/s";
+            return $"{bytesPerSecond} B/s";
+        }
+
+        private static string FormatSize(long bytes)
+        {
+            if (bytes >= 1 << 30) return $"{(double)bytes / (1 << 30):F2} GB";
+            if (bytes >= 1 << 20) return $"{(double)bytes / (1 << 20):F2} MB";
+            if (bytes >= 1 << 10) return $"{(double)bytes / (1 << 10):F2} KB";
+            return $"{bytes} B";
+        }
+
+        private static string TruncateString(string str, int maxLength)
+        {
+            if (string.IsNullOrEmpty(str)) return "";
+            return str.Length <= maxLength ? str : str.Substring(0, maxLength - 3) + "...";
+        }
+
+        public static async Task<bool> DownloadFileWithProgressAsync(string url, string outputPath, long timeoutSeconds, DownloadProgress progress)
+        {
+            int error_count = 0;
+            while (true)
+            {
+                string FileDownloadAddress;
+                
+                if (RemoteFailure || error_count > 2)
+                {
+                    if (error_count > 5)
+                    {
+                        break;
+                    }
+                    if(RemoteFailure)
+                    {
+                        goto Spare;
+                    }
+                    FileDownloadAddress = AlternativeDomainName + url;
+                    lock (consoleLock)
+                    {
+                        progress.Status = "切换备用服务器";
+                        UpdateProgressDisplay();
+                    }
+                    RemoteFailure = true;
+                    Spare:
+                    try
+                    {
+                        var config = new AmazonS3Config() { ServiceURL = endpoint, MaxErrorRetry = 2, Timeout = TimeSpan.FromSeconds(20 + timeoutSeconds) };
+                        var ossClient = new AmazonS3Client(AKID, AKSecret, config);
+                        string FileKey = url.Substring(1, url.Length - 1);
+                        
+                        using var response = await ossClient.GetObjectAsync(Bucket, FileKey);
+                        using var fileStream = new FileStream(outputPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, true);
+                        
+                        var buffer = new byte[81920];
+                        int bytesRead;
+                        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+                        long lastBytes = 0;
+
+                        while ((bytesRead = await response.ResponseStream.ReadAsync(buffer, 0, buffer.Length)) > 0)
+                        {
+                            await fileStream.WriteAsync(buffer, 0, bytesRead);
+                            progress.DownloadedSize += bytesRead;
+                            
+                            if (stopwatch.ElapsedMilliseconds > 500)
+                            {
+                                long currentBytes = progress.DownloadedSize;
+                                progress.Speed = (long)((currentBytes - lastBytes) / (stopwatch.ElapsedMilliseconds / 1000.0));
+                                progress.Percentage = (double)progress.DownloadedSize / progress.TotalSize * 100;
+                                lastBytes = currentBytes;
+                                stopwatch.Restart();
+                            }
+                        }
+                        
+                        return true;
+                    }
+                    catch (Exception ex)
+                    {
+                        error_count++;
+                        lock (consoleLock)
+                        {
+                            progress.Status = $"重试中({error_count})";
+                            UpdateProgressDisplay();
+                        }
+                    }
+                }
+                else
+                {
+                    FileDownloadAddress = MainDomainName + url;
+                    try
+                    {
+                        using var httpClient = new HttpClient();
+                        httpClient.Timeout = TimeSpan.FromSeconds(10 + timeoutSeconds);
+                        httpClient.DefaultRequestHeaders.Referrer = new Uri("https://update5.ddtv.pro");
+                        
+                        using var response = await httpClient.GetAsync(FileDownloadAddress, HttpCompletionOption.ResponseHeadersRead);
+                        response.EnsureSuccessStatusCode();
+                        
+                        using var contentStream = await response.Content.ReadAsStreamAsync();
+                        using var fileStream = new FileStream(outputPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, true);
+                        
+                        var buffer = new byte[81920];
+                        int bytesRead;
+                        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+                        long lastBytes = 0;
+
+                        while ((bytesRead = await contentStream.ReadAsync(buffer, 0, buffer.Length)) > 0)
+                        {
+                            await fileStream.WriteAsync(buffer, 0, bytesRead);
+                            progress.DownloadedSize += bytesRead;
+                            
+                            if (stopwatch.ElapsedMilliseconds > 500)
+                            {
+                                long currentBytes = progress.DownloadedSize;
+                                progress.Speed = (long)((currentBytes - lastBytes) / (stopwatch.ElapsedMilliseconds / 1000.0));
+                                progress.Percentage = (double)progress.DownloadedSize / progress.TotalSize * 100;
+                                lastBytes = currentBytes;
+                                stopwatch.Restart();
+                            }
+                        }
+                        
+                        return true;
+                    }
+                    catch (Exception ex)
+                    {
+                        error_count++;
+                        lock (consoleLock)
+                        {
+                            progress.Status = $"重试中({error_count})";
+                            UpdateProgressDisplay();
+                        }
+                    }
+                }
+
+                await Task.Delay(250);
+            }
+            return false;
         }
         public static bool checkVersion()
         {
@@ -191,7 +550,7 @@ namespace Update
             }
             if (string.IsNullOrEmpty(type) || string.IsNullOrEmpty(ver))
             {
-                Console.WriteLine("更新失败，版本标识文件内容错数");
+                Console.WriteLine("更新失败，版本标识文件内容错误");
                 return false;
             }
             if (ver.ToLower().StartsWith("dev"))
@@ -298,86 +657,6 @@ namespace Update
             return str;
         }
 
-        public static bool DownloadFileAsync(string url, string outputPath, long Time = 10)
-        {
-            int error_count = 0;
-            while (true)
-            {
-                string FileDownloadAddress;
-                
-                if (RemoteFailure || error_count > 2)
-                {
-                    if (error_count > 5)
-                    {
-                        break;
-                    }
-                    if(RemoteFailure)
-                    {
-                        goto Spare;
-                    }
-                    FileDownloadAddress = AlternativeDomainName + url;
-                    Console.WriteLine($"从主服务器获取更新失败，尝试从备用服务器获取....");
-                    RemoteFailure = true;
-                    Spare: //备用服务器下载
-                    try
-                    {
-                        
-                        var config = new AmazonS3Config() { ServiceURL = endpoint, MaxErrorRetry = 2, Timeout = TimeSpan.FromSeconds(20).Add(TimeSpan.FromSeconds(Time)) };
-                        var ossClient = new AmazonS3Client(AKID, AKSecret, config);
-                        string FileKey = url.Substring(1, url.Length - 1);
-                        using GetObjectResponse response = ossClient.GetObjectAsync(Bucket, FileKey).Result;
-                        response.WriteResponseStreamToFileAsync(outputPath, false, new System.Threading.CancellationToken()).Wait();
-                        return true;
-                    }
-                    catch (Exception ex)
-                    {
-                        error_count++;
-                        Console.WriteLine($"出现网络错误1，进行重试");
-
-                    }
-                }
-                else
-                {
-                    FileDownloadAddress = MainDomainName + url;
-                    try
-                    {
-                        HttpClient _httpClient = new HttpClient();
-                        _httpClient.Timeout = new TimeSpan(0, 0, 10).Add(TimeSpan.FromSeconds(Time));
-                        _httpClient.DefaultRequestHeaders.Referrer = new Uri("https://update5.ddtv.pro");
-                        using var response = _httpClient.GetAsync(FileDownloadAddress, HttpCompletionOption.ResponseHeadersRead).Result;
-                        response.EnsureSuccessStatusCode();
-                        using var output = new FileStream(outputPath, FileMode.Create);
-                        using var contentStream = response.Content.ReadAsStreamAsync().Result;
-                        contentStream.CopyTo(output);
-                        return true;
-                    }
-                    catch (WebException webex)
-                    {
-                        error_count++;
-                        switch (webex.Status)
-                        {
-                            case WebExceptionStatus.Timeout:
-                                Console.WriteLine($"下载文件超时:{FileDownloadAddress}");
-                                break;
-
-                            default:
-                                Console.WriteLine($"网络错误，请检查网络状况或者代理设置...开始重试.....");
-                                break;
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        error_count++;
-                        Console.WriteLine($"出现网络错误，错误详情：{ex.ToString()}\r\n\r\n===========执行重试，如果没同一个文件重复提示错误，则表示重试成功==============\r\n");
-
-                    }
-                }
-
-                Thread.Sleep(1000);
-            }
-            return false;
-        }
-
         //更新桶的只读ak
         public static string AKID
         {
@@ -449,5 +728,25 @@ namespace Update
                 return t;
             }
         }
+    }
+
+    public class DownloadProgress
+    {
+        public int TaskId { get; set; }
+        public string FileName { get; set; }
+        public long TotalSize { get; set; }
+        public long DownloadedSize { get; set; }
+        public double Percentage { get; set; }
+        public long Speed { get; set; }
+        public string Status { get; set; }
+        public int Sequence { get; set; }
+    }
+
+    public class FileDownloadInfo
+    {
+        public string Url { get; set; }
+        public string FileName { get; set; }
+        public string FilePath { get; set; }
+        public long Size { get; set; }
     }
 }
