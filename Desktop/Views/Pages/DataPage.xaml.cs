@@ -8,8 +8,6 @@ using Core.LogModule;
 using Desktop.Models;
 using Desktop.Views.Windows;
 using System.Collections.ObjectModel;
-using System.Collections.Specialized;
-using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Forms;
@@ -26,10 +24,10 @@ namespace Desktop.Views.Pages;
 /// </summary>
 public partial class DataPage
 {
-    public static SortableObservableCollection<DataCard> CardsCollection { get; private set; }
+    public static ObservableCollection<DataCard> CardsCollection { get; private set; }
     public static ObservableCollection<string> PageComboBoxItems { get; private set; }
 
-    public static Timer Timer_DataPage;
+    public static System.Threading.Timer Timer_DataPage;
     public static int CardType = 0;
     public static int PageCount = 0;
     public static int PageIndex = 1;
@@ -41,7 +39,6 @@ public partial class DataPage
         InitializeComponent();
         try
         {
-            //初始化各种page
             Init();
         }
         catch (Exception ex)
@@ -53,20 +50,13 @@ public partial class DataPage
 
     public void Init()
     {
-        CardsCollection = new SortableObservableCollection<DataCard>()
-        {
-            SortingSelector = card =>
-            {
-                if (card.Rec_Status) return 1;
-                if (card.Live_Status) return 2;
-                if (card.Rest_Status) return 3;
-                return 4;
-            }
-        };
+        CardsCollection = new ObservableCollection<DataCard>();
         CardsItemsControl.ItemsSource = CardsCollection;
         PageComboBoxItems = new ObservableCollection<string>();
         PageComboBox.ItemsSource = PageComboBoxItems;
         Add_ImportFromFollowList_Menu();
+        // 首次加载立即刷新一次，避免等待 Timer
+        DataSource.RetrieveData.UI_RoomCards.RefreshRoomCards();
     }
 
     /// <summary>
@@ -74,16 +64,16 @@ public partial class DataPage
     /// </summary>
     public void Add_ImportFromFollowList_Menu()
     {
-        Task.Run(() =>
+        Task.Run(async () =>
         {
             try
             {
                 var Groups = Core.RuntimeObject.Follow.GetFollowGroups();
                 if (Groups.Count > 0)
                 {
-                    foreach (var item in Groups)
+                    await Dispatcher.InvokeAsync(() =>
                     {
-                        Dispatcher.Invoke(() =>
+                        foreach (var item in Groups)
                         {
                             MenuItem childMenuItem = new MenuItem
                             {
@@ -93,8 +83,8 @@ public partial class DataPage
 
                             childMenuItem.Click += ImportFromFollowList_ChildMenuItem_Click;
                             ImportFromFollowList_Menu.Items.Add(childMenuItem);
-                        });
-                    }
+                        }
+                    });
                 }
                 Log.Info(nameof(Add_ImportFromFollowList_Menu), "初始化关注列表二级菜单内容成功");
             }
@@ -108,16 +98,17 @@ public partial class DataPage
     // 从二级菜单导入关注列表点击事件
     private void ImportFromFollowList_ChildMenuItem_Click(object sender, RoutedEventArgs e)
     {
-        Task.Run(() =>
+        Task.Run(async () =>
         {
             try
             {
                 MenuItem clickedMenuItem = sender as MenuItem;
                 long tagid = 0;
-                Dispatcher.Invoke(() =>
+                await Dispatcher.InvokeAsync(() =>
                 {
-                    tagid = (long)clickedMenuItem.Tag; // 获取被点击的菜单项的索引
+                    tagid = (long)clickedMenuItem.Tag;
                 });
+
                 int page = 1;
                 List<FollowLists.Data> datas = new();
                 while (Core.RuntimeObject.Follow.GetFollowLists(Core.RuntimeObject.Account.AccountInformation.Uid, tagid, page, out List<FollowLists.Data> T) != 0)
@@ -142,7 +133,8 @@ public partial class DataPage
 
                 if (Core.Config.Core_RunConfig._DesktopRemoteServer || Core.Config.Core_RunConfig._LocalHTTPMode)
                 {
-                    State = NetWork.Post.PostBody<List<(long key, int State, string Message)>>($"{Config.Core_RunConfig._DesktopIP}:{Config.Core_RunConfig._DesktopPort}/api/set_rooms/batch_add_room", dic).Result;
+                    State = await NetWork.Post.PostBody<List<(long key, int State, string Message)>>(
+                        $"{Config.Core_RunConfig._DesktopIP}:{Config.Core_RunConfig._DesktopPort}/api/set_rooms/batch_add_room", dic);
                 }
                 else
                 {
@@ -151,27 +143,24 @@ public partial class DataPage
 
                 if (State == null)
                 {
-                    Log.Warn(nameof(ImportFromFollowList_ChildMenuItem_Click), "调用Core的API[batch_add_room]批量添加房间失败，返回的对象为Null，详情请查看Core日志", null, true);
-                    Dispatcher.Invoke(() =>
+                    Log.Warn(nameof(ImportFromFollowList_ChildMenuItem_Click), "调用Core的API[batch_add_room]批量添加房间失败，返回的对象为Null");
+                    await Dispatcher.InvokeAsync(() =>
                     {
                         MainWindow.SnackbarService.Show("导入关注列表", $"增加房间失败，如果一直提示该错误，请联系开发者", ControlAppearance.Caution, new SymbolIcon(SymbolRegular.ArrowImport20), TimeSpan.FromSeconds(10));
                     });
-
                     return;
                 }
-                else
-                {
-                    int Count = _uidl.Count();
-                    int Ok = State.Count(item => item.State == 1);
-                    int Repeat = State.Count(item => item.State == 2);
-                    int NotPresent = State.Count(item => item.State == 3);
-                    Dispatcher.Invoke(() =>
-                    {
-                        MainWindow.SnackbarService.Show("导入关注列表", $"导入完成，所选关注列表成功导入{Ok}个" + (Repeat > 0 ? $",有{Repeat}已存在，跳过导入" : "") + (NotPresent > 0 ? $",有{NotPresent}个关注用户没有开通直播间" : ""), ControlAppearance.Success, new SymbolIcon(SymbolRegular.ArrowImport20), TimeSpan.FromSeconds(10));
-                    });
 
-                    Log.Info(nameof(ImportFromFollowList_ChildMenuItem_Click), $"导入完成，所选关注列表成功导入{Ok}个" + (Repeat > 0 ? $",有{Repeat}已存在，跳过导入" : "") + (NotPresent > 0 ? $",有{NotPresent}个关注用户没有开通直播间" : ""));
-                }
+                int Count = _uidl.Count();
+                int Ok = State.Count(item => item.State == 1);
+                int Repeat = State.Count(item => item.State == 2);
+                int NotPresent = State.Count(item => item.State == 3);
+                await Dispatcher.InvokeAsync(() =>
+                {
+                    MainWindow.SnackbarService.Show("导入关注列表", $"导入完成，所选关注列表成功导入{Ok}个" + (Repeat > 0 ? $",有{Repeat}已存在，跳过导入" : "") + (NotPresent > 0 ? $",有{NotPresent}个关注用户没有开通直播间" : ""), ControlAppearance.Success, new SymbolIcon(SymbolRegular.ArrowImport20), TimeSpan.FromSeconds(10));
+                });
+
+                Log.Info(nameof(ImportFromFollowList_ChildMenuItem_Click), $"导入完成，所选关注列表成功导入{Ok}个" + (Repeat > 0 ? $",有{Repeat}已存在，跳过导入" : "") + (NotPresent > 0 ? $",有{NotPresent}个关注用户没有开通直播间" : ""));
             }
             catch (Exception ex)
             {
@@ -182,7 +171,7 @@ public partial class DataPage
 
     public static void UpdatePageCount(int PageCount)
     {
-        Application.Current.Dispatcher.Invoke(() =>
+        Application.Current.Dispatcher.InvokeAsync(() =>
         {
             if (PageComboBoxItems != null)
             {
@@ -199,25 +188,6 @@ public partial class DataPage
     public static void Refresher(object state)
     {
         DataSource.RetrieveData.UI_RoomCards.RefreshRoomCards();
-    }
-    public class SortableObservableCollection<T> : ObservableCollection<T>
-    {
-        public Func<T, int> SortingSelector { get; set; }
-
-        protected override void OnCollectionChanged(NotifyCollectionChangedEventArgs e)
-        {
-            Application.Current.Dispatcher.Invoke(() =>
-            {
-                base.OnCollectionChanged(e);
-                if (SortingSelector == null || e.Action == NotifyCollectionChangedAction.Remove || e.Action == NotifyCollectionChangedAction.Reset) return;
-                var query = this.Select((item, index) => (Item: item, Index: index));
-                query = query.OrderBy(tuple => SortingSelector(tuple.Item));
-                var map = query.Select((tuple, index) => (OldIndex: tuple.Index, NewIndex: index)).Where(o => o.OldIndex != o.NewIndex);
-                using (var enumerator = map.GetEnumerator())
-                    if (enumerator.MoveNext())
-                        Move(enumerator.Current.OldIndex, enumerator.Current.NewIndex);
-            });
-        }
     }
 
     private void AddRoomCardForRoomId_Click(object sender, RoutedEventArgs e)
@@ -248,10 +218,7 @@ public partial class DataPage
         PageIndex = PageComboBox.SelectedIndex + 1;
         try
         {
-            // 获取ScrollViewer的引用
             ScrollViewer? scrollViewer = VisualTreeHelper.GetChild(CardsItemsControl, 0) as ScrollViewer;
-
-            // 滚动到顶部
             scrollViewer?.ScrollToTop();
         }
         catch (Exception)
@@ -279,26 +246,19 @@ public partial class DataPage
     /// <summary>
     /// 导入其他DDTV房间配置
     /// </summary>
-    /// <param name="sender"></param>
-    /// <param name="e"></param>
     private void ImportHistoricalRoomConfiguration_Click(object sender, RoutedEventArgs e)
     {
-        // 创建一个FolderBrowserDialog对象
         FolderBrowserDialog folderBrowserDialog = new FolderBrowserDialog();
-
-        // 显示对话框
         DialogResult result = folderBrowserDialog.ShowDialog();
 
-        // 检查用户是否点击了“确定”按钮
         if (result == DialogResult.OK)
         {
-            //用户选择的文件夹的绝对路径DirectoryInfo
             string DirectoryPath = folderBrowserDialog.SelectedPath;
             if (FindRoomListConfigFile(DirectoryPath, out string JsonPath))
             {
                 if (Core.Config.RoomConfig.ImportRoomConfiguration(JsonPath, out (int Total, int Success, int Fail, int Repeat, int NotPresent) count))
                 {
-                    MainWindow.SnackbarService.Show("导入房间配置", $"导入完成，所选导入文件成功导入{count.Success}个" + (result > 0 ? $"(有{count.Repeat}已存在，跳过导入)" : ""), ControlAppearance.Secondary, new SymbolIcon(SymbolRegular.ArrowImport20), TimeSpan.FromSeconds(10));
+                    MainWindow.SnackbarService.Show("导入房间配置", $"导入完成，所选导入文件成功导入{count.Success}个" + (count.Repeat > 0 ? $"(有{count.Repeat}已存在，跳过导入)" : ""), ControlAppearance.Secondary, new SymbolIcon(SymbolRegular.ArrowImport20), TimeSpan.FromSeconds(10));
                     return;
                 }
             }
@@ -309,9 +269,6 @@ public partial class DataPage
     /// <summary>
     /// 查找对应路径有没有房间配置文件
     /// </summary>
-    /// <param name="DirectoryPath">其他版本的DDTV路径</param>
-    /// <param name="configFile">如果存在，out string为Josn文件的绝对路径</param>
-    /// <returns>是否存在配置文件</returns>
     private bool FindRoomListConfigFile(string DirectoryPath, out string configFile)
     {
         string[] searchPaths = { DirectoryPath, $"{DirectoryPath}/bin/Config", $"{DirectoryPath}/Config" };
@@ -319,8 +276,8 @@ public partial class DataPage
 
         foreach (string path in searchPaths)
         {
-            string filePath = Path.Combine(path, "RoomListConfig.json");
-            if (File.Exists(filePath))
+            string filePath = System.IO.Path.Combine(path, "RoomListConfig.json");
+            if (System.IO.File.Exists(filePath))
             {
                 configFile = filePath;
                 return true;

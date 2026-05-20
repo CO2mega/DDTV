@@ -8,7 +8,6 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using System.Diagnostics;
-using System.Formats.Asn1;
 using static Core.RuntimeObject.RoomCardClass;
 
 namespace Server
@@ -53,9 +52,9 @@ namespace Server
             ConsoleTableBuilder.From(tableData).WithTitle("下载中的任务列表").ExportAndWriteLine();
         }
 
-        internal static void SeKey()
+        internal static void SetupConsoleMenu()
         {
-            Log.Info(nameof(SeKey), $"控制台菜单初始化完成");
+            Log.Info(nameof(SetupConsoleMenu), $"控制台菜单初始化完成");
             Task.Run(() =>
             {
                 try

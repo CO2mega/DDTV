@@ -3,9 +3,6 @@ using Core.Account;
 using Core.LogModule;
 using Core.Network;
 using Masuit.Tools;
-using Microsoft.AspNetCore;
-using Microsoft.AspNetCore.Identity;
-using Microsoft.Extensions.FileSystemGlobbing.Abstractions;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System;
@@ -150,7 +147,7 @@ namespace Core.RuntimeObject
         /// <param name="liveChatListener"></param>
         /// <param name="DeleteCurrentContent">只删除当前内容，不保存</param>
         /// <param name="card"></param>
-        public static void SevaDanmu(LiveChat.LiveChatListener liveChatListener, bool DeleteCurrentContent, ref RoomCardClass card)
+        public static void SaveDanmu(LiveChat.LiveChatListener liveChatListener, bool DeleteCurrentContent, ref RoomCardClass card)
         {
             string Message = "保存弹幕相关文件";
             if (!DeleteCurrentContent)
@@ -161,33 +158,33 @@ namespace Core.RuntimeObject
                     string File = liveChatListener.File + $"_{liveChatListener.SaveCount}";
                     if (liveChatListener.DanmuMessage.Danmu != null && liveChatListener.DanmuMessage.Danmu.Count > 0)
                     {
-                        FileInfo fileInfo = SevaDanmu(liveChatListener.DanmuMessage.Danmu, File, liveChatListener.Name, liveChatListener.RoomId);
+                        FileInfo fileInfo = SaveDanmu(liveChatListener.DanmuMessage.Danmu, File, liveChatListener.Name, liveChatListener.RoomId);
 
-                        Log.Info(nameof(SevaDanmu), $"{liveChatListener.Name}({liveChatListener.RoomId})保存弹幕相关文件为{File}");
+                        Log.Info(nameof(SaveDanmu), $"{liveChatListener.Name}({liveChatListener.RoomId})保存弹幕相关文件为{File}");
                         card.DownInfo.DownloadFileList.DanmuFile.Add(fileInfo.FullName);
                     }
                     if (liveChatListener.DanmuMessage.Gift != null && liveChatListener.DanmuMessage.Gift.Count > 0)
                     {
                         FileInfo fileInfo = SevaGift(liveChatListener.DanmuMessage.Gift, File);
-                        Log.Info(nameof(SevaDanmu), $"{liveChatListener.Name}({liveChatListener.RoomId})保存送礼记录相关文件为{File}");
+                        Log.Info(nameof(SaveDanmu), $"{liveChatListener.Name}({liveChatListener.RoomId})保存送礼记录相关文件为{File}");
                         card.DownInfo.DownloadFileList.GiftFile.Add(fileInfo.FullName);
                     }
                     if (liveChatListener.DanmuMessage.GuardBuy != null && liveChatListener.DanmuMessage.GuardBuy.Count > 0)
                     {
                         FileInfo fileInfo = SevaGuardBuy(liveChatListener.DanmuMessage.GuardBuy, File);
-                        Log.Info(nameof(SevaDanmu), $"{liveChatListener.Name}({liveChatListener.RoomId})保存上舰记录相关文件为{File}");
+                        Log.Info(nameof(SaveDanmu), $"{liveChatListener.Name}({liveChatListener.RoomId})保存上舰记录相关文件为{File}");
                         card.DownInfo.DownloadFileList.GuardFile.Add(fileInfo.FullName);
                     }
                     if (liveChatListener.DanmuMessage.SuperChat != null && liveChatListener.DanmuMessage.SuperChat.Count > 0)
                     {
                         FileInfo fileInfo = SevaSuperChat(liveChatListener.DanmuMessage.SuperChat, File);
-                        Log.Info(nameof(SevaDanmu), $"{liveChatListener.Name}({liveChatListener.RoomId})保存SC记录相关文件为{File}");
+                        Log.Info(nameof(SaveDanmu), $"{liveChatListener.Name}({liveChatListener.RoomId})保存SC记录相关文件为{File}");
                         card.DownInfo.DownloadFileList.SCFile.Add(fileInfo.FullName);
                     }
                 }
                 else
                 {
-                    Log.Warn(nameof(SevaDanmu), "liveChatListener或DanmuMessage为Null");
+                    Log.Warn(nameof(SaveDanmu), "liveChatListener或DanmuMessage为Null");
                 }
             }
             else
@@ -204,7 +201,7 @@ namespace Core.RuntimeObject
 
 
             OperationQueue.Add(Opcode.Download.SaveBulletScreenFile, Message, card.UID);
-            Log.Info(nameof(SevaDanmu), Message);
+            Log.Info(nameof(SaveDanmu), Message);
         }
 
         /// <summary>
@@ -246,7 +243,7 @@ namespace Core.RuntimeObject
         /// <param name="roomId">房间号</param>
         /// <param name="IsTemporary">是否为临时保存（不删除记录）</param>
         /// <returns></returns>
-        public static FileInfo SevaDanmu(List<DanmuInfo> danmuInfo, string FileName, string Name, long roomId, bool IsTemporary = false)
+        public static FileInfo SaveDanmu(List<DanmuInfo> danmuInfo, string FileName, string Name, long roomId, bool IsTemporary = false)
         {
             string XML = string.Empty;
             XML = "<?xml version=\"1.0\" encoding=\"utf-8\"?>" +

@@ -20,9 +20,9 @@ namespace Core.RuntimeObject.Download
         /// <param name="card">房间卡片信息</param>
         /// <param name="Reconnection">是否为重连</param>
         /// <returns>[TaskStatus]任务状态；[FileName]下载成功的文件名</returns>
-        public static async Task<(DlwnloadTaskState hlsState, string FileName)> DlwnloadHls_avc_mp4(RoomCardClass card, bool Reconnection)
+        public static async Task<(DownloadTaskState hlsState, string FileName)> DlwnloadHls_avc_mp4(RoomCardClass card, bool Reconnection)
         {
-            DlwnloadTaskState hlsState = DlwnloadTaskState.Default;
+            DownloadTaskState hlsState = DownloadTaskState.Default;
             string File = string.Empty;
             Stopwatch stopWatch = new Stopwatch();
             await Task.Run(() =>
@@ -62,24 +62,24 @@ namespace Core.RuntimeObject.Download
                     while (!GetHlsHost_avc(card, ref hostClass))
                     {
                         hlsState = HandleHlsError(card, hostClass);
-                        if (!Reconnection && hlsState == DlwnloadTaskState.NoHLSStreamExists)//初次任务，等待HLS流生成，等待时间根据配置文件来
+                        if (!Reconnection && hlsState == DownloadTaskState.NoHLSStreamExists)//初次任务，等待HLS流生成，等待时间根据配置文件来
                         {
                             Thread.Sleep(Config.Core_RunConfig._HlsWaitingTime * 1000);
                         }
                         hlsState = HandleHlsError(card, hostClass);
                         switch (hlsState)
                         {
-                            case DlwnloadTaskState.StopLive:
+                            case DownloadTaskState.StopLive:
                                 hlsState = CheckAndHandleFile(File, ref card);
                                 return;
-                            case DlwnloadTaskState.UserCancellation:
+                            case DownloadTaskState.UserCancellation:
                                 hlsState = CheckAndHandleFile(File, ref card);
                                 return;
-                            case DlwnloadTaskState.PaidLiveStream:
+                            case DownloadTaskState.PaidLiveStream:
                                 CheckAndHandleFile(File, ref card);
                                 Log.Warn(nameof(HandleHlsError), $"[{card.Name}({card.RoomId})]直播间开播中，但直播间为收费直播间(大航海或者门票直播)，创建任务失败，跳过当前任务");
                                 return;
-                            case DlwnloadTaskState.NoHLSStreamExists:
+                            case DownloadTaskState.NoHLSStreamExists:
                                 CheckAndHandleFile(File, ref card);
                                 Log.Info(nameof(HandleHlsError), $"[{card.Name}({card.RoomId})]直播间开播中，但没获取到HLS流，降级到FLV模式");
                                 return;
@@ -102,28 +102,28 @@ namespace Core.RuntimeObject.Download
                         if (card.RoomCutAccordingToSize > 0 && DownloadFileSizeForThisTask > card.RoomCutAccordingToSize)
                         {
                             Log.Info(nameof(DlwnloadHls_avc_mp4), $"{card.Name}({card.RoomId})触发房间文件大小分割");
-                            hlsState = DlwnloadTaskState.Success;
+                            hlsState = DownloadTaskState.Success;
                             return;
                         }
 
                         if (card.RoomCutAccordingToSize == 0 && Config.Core_RunConfig._CutAccordingToSize > 0 && DownloadFileSizeForThisTask > Config.Core_RunConfig._CutAccordingToSize)
                         {
                             Log.Info(nameof(DlwnloadHls_avc_mp4), $"{card.Name}({card.RoomId})触发全局文件大小分割");
-                            hlsState = DlwnloadTaskState.Success;
+                            hlsState = DownloadTaskState.Success;
                             return;
                         }
                         //处理时间限制分割
                         if (card.RoomCutAccordingToTime > 0 && stopWatch.Elapsed.TotalSeconds > card.RoomCutAccordingToTime)
                         {
                             Log.Info(nameof(DlwnloadHls_avc_mp4), $"{card.Name}({card.RoomId})触发房间时间分割");
-                            hlsState = DlwnloadTaskState.Success;
+                            hlsState = DownloadTaskState.Success;
                             return;
                         }
 
                         if (card.RoomCutAccordingToTime == 0 && Config.Core_RunConfig._CutAccordingToTime > 0 && stopWatch.Elapsed.TotalSeconds > Config.Core_RunConfig._CutAccordingToTime)
                         {
                             Log.Info(nameof(DlwnloadHls_avc_mp4), $"{card.Name}({card.RoomId})触发全局时间分割");
-                            hlsState = DlwnloadTaskState.Success;
+                            hlsState = DownloadTaskState.Success;
                             return;
                         }
 
@@ -143,17 +143,17 @@ namespace Core.RuntimeObject.Download
                                 hlsState = HandleHostRefresh(card, ref hostClass);
                                 switch (hlsState)
                                 {
-                                    case DlwnloadTaskState.StopLive:
+                                    case DownloadTaskState.StopLive:
                                         hlsState = CheckAndHandleFile(File, ref card);
                                         return;
-                                    case DlwnloadTaskState.UserCancellation:
+                                    case DownloadTaskState.UserCancellation:
                                         hlsState = CheckAndHandleFile(File, ref card);
                                         return;
-                                    case DlwnloadTaskState.Default:
+                                    case DownloadTaskState.Default:
                                         if (RetryCount > 5)
                                         {
                                             CheckAndHandleFile(File, ref card);
-                                            hlsState = DlwnloadTaskState.NoHLSStreamExists;
+                                            hlsState = DownloadTaskState.NoHLSStreamExists;
                                         }
                                         RetryCount++;
                                         return;
@@ -191,7 +191,7 @@ namespace Core.RuntimeObject.Download
                                             if (temp_TrackWidth != TrackWidth || temp_TrackHeight != TrackHeight)
                                             {
                                                 Log.Info(nameof(DlwnloadHls_avc_mp4), $"[{card.Name}({card.RoomId})]检测到分辨率变化，进行切割处理");
-                                                hlsState = DlwnloadTaskState.Success;
+                                                hlsState = DownloadTaskState.Success;
                                                 return;
                                             }
 
@@ -218,7 +218,7 @@ namespace Core.RuntimeObject.Download
                                     if (FileNameTimeout)
                                     {
                                         //如果本次HLS获取到的内容前后都包含上一秒的切片，视为换了全新的切片队列
-                                        hlsState = DlwnloadTaskState.AnchorReStream;
+                                        hlsState = DownloadTaskState.AnchorReStream;
                                         return;
                                     }
                                 }
@@ -244,7 +244,7 @@ namespace Core.RuntimeObject.Download
                                     if (InitialRequest)
                                     {
                                         hlsState = CheckAndHandleFile(File, ref card);
-                                        hlsState = DlwnloadTaskState.SuccessfulButNotStream;
+                                        hlsState = DownloadTaskState.SuccessfulButNotStream;
                                         if (!card.DownInfo.Unmark && !card.DownInfo.IsCut)
                                         {
                                             CheckAndHandleFile(File, ref card);
@@ -255,7 +255,7 @@ namespace Core.RuntimeObject.Download
                                     else
                                     {
                                         Log.Info(nameof(DlwnloadHls_avc_mp4), $"[{card.Name}({card.RoomId})]录制任务收到END数据包，进行收尾处理");
-                                        hlsState = DlwnloadTaskState.Success;
+                                        hlsState = DownloadTaskState.Success;
                                         if (!card.DownInfo.Unmark && !card.DownInfo.IsCut)
                                         {
                                             CheckAndHandleFile(File, ref card);
@@ -273,7 +273,7 @@ namespace Core.RuntimeObject.Download
                                     //正式开始下载提示
                                     LogDownloadStart(card, "HLS");
 
-                                    hlsState = DlwnloadTaskState.Recording;
+                                    hlsState = DownloadTaskState.Recording;
                                 }
                                 InitialRequest = false;
                             }
@@ -308,19 +308,19 @@ namespace Core.RuntimeObject.Download
         /// <param name="card">房间信息</param>
         /// <param name="hostClass">HostClass实例</param>
         /// <returns>HLS错误计数</returns>
-        private static DlwnloadTaskState HandleHostRefresh(RoomCardClass card, ref HostClass hostClass)
+        private static DownloadTaskState HandleHostRefresh(RoomCardClass card, ref HostClass hostClass)
         {
             if (!GetHlsHost_avc(card, ref hostClass) && !RoomInfo.GetLiveStatus(card.RoomId))
             {
                 Log.Info(nameof(DlwnloadHls_avc_mp4), $"[{card.Name}({card.RoomId})]刷新Host时发现直播间已下播");
-                return DlwnloadTaskState.StopLive;
+                return DownloadTaskState.StopLive;
             }
             if (card.DownInfo.Unmark)
             {
-                return DlwnloadTaskState.UserCancellation;
+                return DownloadTaskState.UserCancellation;
             }
             Log.Info(nameof(DlwnloadHls_avc_mp4), $"[{card.Name}({card.RoomId})]直播间未检测到直播流，3秒后重试");
-            return DlwnloadTaskState.Default;
+            return DownloadTaskState.Default;
         }
 
 
@@ -332,16 +332,16 @@ namespace Core.RuntimeObject.Download
         /// <param name="card">房间卡片信息</param>
         /// <param name="hostClass">主播类</param>
         /// <returns>当前HLS状态</returns>
-        private static DlwnloadTaskState HandleHlsError(RoomCardClass card, HostClass hostClass)
+        private static DownloadTaskState HandleHlsError(RoomCardClass card, HostClass hostClass)
         {
             if (!RoomInfo.GetLiveStatus(card.RoomId))
             {
-                return DlwnloadTaskState.StopLive;
+                return DownloadTaskState.StopLive;
             }
 
             if (card.DownInfo.Unmark)
             {
-                return DlwnloadTaskState.UserCancellation;
+                return DownloadTaskState.UserCancellation;
             }
             //
             bool isPaidLiveStream = hostClass.all_special_types.Contains(1);
@@ -355,7 +355,7 @@ namespace Core.RuntimeObject.Download
                 {
                     //没门票
                     card.DownInfo.Status = RoomCardClass.DownloadStatus.Special;
-                    return DlwnloadTaskState.PaidLiveStream;
+                    return DownloadTaskState.PaidLiveStream;
                 }
                 //有门票
                 if (!string.IsNullOrEmpty(url))
@@ -367,12 +367,12 @@ namespace Core.RuntimeObject.Download
             if (hostClass.Effective)
             {
                 card.DownInfo.Status = RoomCardClass.DownloadStatus.Downloading;
-                return DlwnloadTaskState.Default;
+                return DownloadTaskState.Default;
             }
             else
             {
                 card.DownInfo.Status = RoomCardClass.DownloadStatus.Standby;
-                return DlwnloadTaskState.NoHLSStreamExists;
+                return DownloadTaskState.NoHLSStreamExists;
             }
         }
 

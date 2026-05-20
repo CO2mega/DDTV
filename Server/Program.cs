@@ -30,21 +30,22 @@ namespace Server
             Directory.SetCurrentDirectory(AppDomain.CurrentDomain.BaseDirectory);
             try
             {
+                string[] effectiveArgs = args;
                 if (!Array.Exists(args, element => element.Contains("--StartMode")))
                 {
-                    string[] N_args = new string[args.Length + 1];
+                    effectiveArgs = new string[args.Length + 1];
                     for (int i = 0; i < args.Length; i++)
                     {
-                        N_args[i] = args[i];
+                        effectiveArgs[i] = args[i];
                     }
-                    N_args[N_args.Length - 1] = "--StartMode=Server";
+                    effectiveArgs[effectiveArgs.Length - 1] = "--StartMode=Server";
                 }
-                if (!args.Contains("Desktop") && !args.Contains("Client"))
+                if (!effectiveArgs.Contains("Desktop") && !effectiveArgs.Contains("Client"))
                 {
                     Console.OutputEncoding = System.Text.Encoding.UTF8;
                 }
 
-                MainAsync(args).GetAwaiter().GetResult();
+                MainAsync(effectiveArgs).GetAwaiter().GetResult();
             }
             catch (Exception ex)
             {
@@ -265,7 +266,7 @@ namespace Server
 
                             if(Init.Mode!= Config.Mode.Desktop && Init.Mode!= Config.Mode.Client && Init.Mode!= Config.Mode.Docker)
                             {
-                                TerminalDisplay.SeKey();
+                                TerminalDisplay.SetupConsoleMenu();
                             }
                         }
                         catch (Exception EX)
@@ -308,7 +309,7 @@ namespace Server
                         {
                             Log.Error("ParentProcessDetection", $"GUI模式下父进程被关闭，强制结束CLI进程");
                             Thread.Sleep(3000);
-                            Environment.Exit(-114514);
+                            Environment.Exit(Core.Init.ExitCodes.FatalError);
                         }
                         else
                         {
@@ -321,7 +322,7 @@ namespace Server
                             {
                                 Log.Error("ParentProcessDetection", $"GUI模式下父进程被关闭，强制结束CLI进程");
                                 Thread.Sleep(3000);
-                                Environment.Exit(-114514);
+                                Environment.Exit(Core.Init.ExitCodes.FatalError);
                             }
                         }
                         Thread.Sleep(1000 * 3);
@@ -347,7 +348,7 @@ namespace Server
                     {
                         Log.Error("DokiDoki", $"检测到内存泄漏严重，3秒后自动停止运行");
                         Thread.Sleep(3000);
-                        Environment.Exit(-114514);
+                        Environment.Exit(Core.Init.ExitCodes.FatalError);
                     }
 #if DEBUG
                     Thread.Sleep(60 * 1000);
@@ -362,7 +363,7 @@ namespace Server
                 while (true)
                 {
                     var doki = Core.Tools.DokiDoki.GetDoki();
-                    MessageBase.MssagePack("dokidoki", doki, "dokidoki");
+                    MessageBase.MessagePack("dokidoki", doki, "dokidoki");
                     Thread.Sleep(30 * 1000);
                 }
             });

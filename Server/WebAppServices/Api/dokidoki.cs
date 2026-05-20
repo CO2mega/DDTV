@@ -26,7 +26,7 @@ namespace Server.WebAppServices.Api
         [HttpPost(Name = "dokidoki")]
         public ActionResult Post(PostCommonParameters commonParameters)
         {
-            return Content(MessageBase.MssagePack(nameof(dokidoki), Core.Tools.DokiDoki.GetDoki()), "application/json");
+            return Content(MessageBase.MessagePack(nameof(dokidoki), Core.Tools.DokiDoki.GetDoki()), "application/json");
         }
         /// <summary>
         /// 请求当前运行心跳信息
@@ -36,7 +36,7 @@ namespace Server.WebAppServices.Api
         [HttpGet(Name = "dokidoki")]
         public ActionResult GET(GetCommonParameters commonParameters)
         {
-            return Content(MessageBase.MssagePack(nameof(dokidoki), Core.Tools.DokiDoki.GetDoki()), "application/json");
+            return Content(MessageBase.MessagePack(nameof(dokidoki), Core.Tools.DokiDoki.GetDoki()), "application/json");
         }
 
     }
@@ -53,7 +53,7 @@ namespace Server.WebAppServices.Api
         [HttpGet(Name = "init_inspect")]
         public ActionResult Get()
         {
-            return Content(MessageBase.MssagePack(nameof(init_inspect), "OK", "OK"), "application/json");
+            return Content(MessageBase.MessagePack(nameof(init_inspect), "OK", "OK"), "application/json");
         }
     }
 }

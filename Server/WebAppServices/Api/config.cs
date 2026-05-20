@@ -30,7 +30,7 @@ namespace Server.WebAppServices.Api
         public ActionResult Post(PostCommonParameters commonParameters)
         {
             Core.Config.ReadConfiguration();
-            return Content(MessageBase.MssagePack(nameof(reload_configuration), true, $"从配置文件重新加载配置\r\n请注意，如果修改了路径相关配置，之后调用路径相关接口获取到的都会是新的配置，可能会造成一场直播写到两个路径中的问题"), "application/json");
+            return Content(MessageBase.MessagePack(nameof(reload_configuration), true, $"从配置文件重新加载配置\r\n请注意，如果修改了路径相关配置，之后调用路径相关接口获取到的都会是新的配置，可能会造成一场直播写到两个路径中的问题"), "application/json");
         }
     }
 
@@ -58,23 +58,23 @@ namespace Server.WebAppServices.Api
                 path = CreateAll(path);
                 if (string.IsNullOrEmpty(path))
                 {
-                    return Content(MessageBase.MssagePack(nameof(set_recording_path), "错误",
+                    return Content(MessageBase.MessagePack(nameof(set_recording_path), "错误",
                    $"正在将录制路径格式修改为{path}，格式不符合要求，无法创建，请检查"),
                    "application/json");
                 }
                 cache.set_recording_path = Guid.NewGuid().ToString();
-                return Content(MessageBase.MssagePack(nameof(set_recording_path), cache.set_recording_path,
+                return Content(MessageBase.MessagePack(nameof(set_recording_path), cache.set_recording_path,
                     $"正在将录制路径格式修改为{path}，请二次确认，将返回的data数据中的key，加到到接口中再次提交。请注意，二次确认提交后“get_file_structure”接口以及返回具体的文件流功能将会失效，直到下一次启动"),
                     "application/json");
             }
             if (check != cache.set_recording_path)
             {
-                return Content(MessageBase.MssagePack(nameof(set_recording_path), false, $"二次确认的key不正确"), "application/json");
+                return Content(MessageBase.MessagePack(nameof(set_recording_path), false, $"二次确认的key不正确"), "application/json");
             }
             else
             {
                 Core.Config.Core_RunConfig._RecFileDirectory = path;
-                return Content(MessageBase.MssagePack(nameof(set_recording_path), true,
+                return Content(MessageBase.MessagePack(nameof(set_recording_path), true,
                     $"正在将录制路径格式修改为{path}，二次确认完成，“get_file_structure”接口以及返回具体的文件流功能将已失效，重启后恢复"),
                     "application/json");
             }
@@ -97,7 +97,7 @@ namespace Server.WebAppServices.Api
         [HttpGet(Name = "get_recording_path")]
         public ActionResult Get(GetCommonParameters commonParameters)
         {
-            return Content(MessageBase.MssagePack(nameof(get_recording_path), Core.Config.Core_RunConfig._RecFileDirectory, $"获取录制文件储存路径（字符串）"), "application/json");
+            return Content(MessageBase.MessagePack(nameof(get_recording_path), Core.Config.Core_RunConfig._RecFileDirectory, $"获取录制文件储存路径（字符串）"), "application/json");
         }
     }
 
@@ -129,13 +129,13 @@ namespace Server.WebAppServices.Api
                 cache.set_default_liver_folder_name = default_liver_folder_name;
                 cache.set_default_data_folder_name = default_data_folder_name;
                 cache.set_default_file_name = default_file_name;
-                return Content(MessageBase.MssagePack(nameof(set_default_file_path_name_format), A,
+                return Content(MessageBase.MessagePack(nameof(set_default_file_path_name_format), A,
                     $"正在将录制储存路径中的子路径和格式修改为[{A}]，请二次确认，将返回的data数据中的key，加到到接口中再次提交。请注意，如果格式有误将录制失败和错误，二次确认提交后“get_file_structure”接口以及返回具体的文件流功能将会失效或出现异常，直到下一次启动"),
                     "application/json");
             }
             if (check != cache.set_default_all_name)
             {
-                return Content(MessageBase.MssagePack(nameof(set_default_file_path_name_format), false, $"二次确认的key不正确"), "application/json");
+                return Content(MessageBase.MessagePack(nameof(set_default_file_path_name_format), false, $"二次确认的key不正确"), "application/json");
             }
             else
             {
@@ -146,7 +146,7 @@ namespace Server.WebAppServices.Api
                 cache.set_default_liver_folder_name = Guid.NewGuid().ToString();
                 cache.set_default_data_folder_name = Guid.NewGuid().ToString();
                 cache.set_default_file_name = Guid.NewGuid().ToString();
-                return Content(MessageBase.MssagePack(nameof(set_default_file_path_name_format), true,
+                return Content(MessageBase.MessagePack(nameof(set_default_file_path_name_format), true,
                     $"正在将录制储存路径中的子路径和格式修改为[{default_liver_folder_name}/{default_data_folder_name}/{default_file_name}]，二次确认完成，“get_file_structure”接口以及返回具体的文件流功能将已失效或出现异常，重启后恢复"),
                     "application/json");
             }
@@ -176,7 +176,7 @@ namespace Server.WebAppServices.Api
                 default_data_folder_name = Core.Config.Core_RunConfig._DefaultDataFolderName,
                 default_file_name = Core.Config.Core_RunConfig._DefaultFileName
             };
-            return Content(MessageBase.MssagePack(nameof(get_default_file_path_name_format), data, $"录制储存路径中的子路径和格式"), "application/json");
+            return Content(MessageBase.MessagePack(nameof(get_default_file_path_name_format), data, $"录制储存路径中的子路径和格式"), "application/json");
         }
     }
 
@@ -198,7 +198,7 @@ namespace Server.WebAppServices.Api
         {
             //直接删掉配置文件，重启后会自动生成的
             Core.Tools.FileOperations.Delete(Core.Config.Core_RunConfig._ConfigurationFile);
-            return Content(MessageBase.MssagePack(nameof(restore_all_settings_to_default), "", $"恢复所有设置为默认值，请重新启动程序，重启后生效"), "application/json");
+            return Content(MessageBase.MessagePack(nameof(restore_all_settings_to_default), "", $"恢复所有设置为默认值，请重新启动程序，重启后生效"), "application/json");
         }
     }
 
@@ -220,7 +220,7 @@ namespace Server.WebAppServices.Api
         public ActionResult Post(PostCommonParameters commonParameters, [FromForm] int waiting_time)
         {
             Core.Config.Core_RunConfig._HlsWaitingTime = waiting_time;
-            return Content(MessageBase.MssagePack(nameof(set_hls_waiting_time), "", $"将HLS等待时间修改为{waiting_time}秒"), "application/json");
+            return Content(MessageBase.MessagePack(nameof(set_hls_waiting_time), "", $"将HLS等待时间修改为{waiting_time}秒"), "application/json");
         }
     }
 
@@ -240,7 +240,7 @@ namespace Server.WebAppServices.Api
         [HttpGet(Name = "get_hls_waiting_time")]
         public ActionResult Get(GetCommonParameters commonParameters)
         {
-            return Content(MessageBase.MssagePack(nameof(get_hls_waiting_time), Core.Config.Core_RunConfig._HlsWaitingTime, $""), "application/json");
+            return Content(MessageBase.MessagePack(nameof(get_hls_waiting_time), Core.Config.Core_RunConfig._HlsWaitingTime, $""), "application/json");
         }
     }
 
@@ -262,7 +262,7 @@ namespace Server.WebAppServices.Api
         public ActionResult Post(PostCommonParameters commonParameters, [FromForm] bool automatic_repair)
         {
             Core.Config.Core_RunConfig._AutomaticRepair = automatic_repair;
-            return Content(MessageBase.MssagePack(nameof(set_automatic_repair), "", $"将自动修复设置为{automatic_repair}"), "application/json");
+            return Content(MessageBase.MessagePack(nameof(set_automatic_repair), "", $"将自动修复设置为{automatic_repair}"), "application/json");
         }
     }
     [Produces(MediaTypeNames.Application.Json)]
@@ -281,7 +281,7 @@ namespace Server.WebAppServices.Api
         [HttpGet(Name = "get_automatic_repair")]
         public ActionResult Get(GetCommonParameters commonParameters)
         {
-            return Content(MessageBase.MssagePack(nameof(get_automatic_repair), Core.Config.Core_RunConfig._AutomaticRepair, $""), "application/json");
+            return Content(MessageBase.MessagePack(nameof(get_automatic_repair), Core.Config.Core_RunConfig._AutomaticRepair, $""), "application/json");
         }
     }
 
@@ -305,13 +305,13 @@ namespace Server.WebAppServices.Api
             if (string.IsNullOrEmpty(check))
             {
                 cache.reinitialize = Guid.NewGuid().ToString();
-                return Content(MessageBase.MssagePack(nameof(reinitialize), cache.reinitialize,
+                return Content(MessageBase.MessagePack(nameof(reinitialize), cache.reinitialize,
                     $"正在进行重新初始化，请二次确认，将返回的data数据中的key，加到到接口中再次提交。请注意，该操作完成后，将会把所有现有配置文件清空，并且自动结束运行。运行后请自行重新启动应进程。"),
                     "application/json");
             }
             if (check != cache.reinitialize)
             {
-                return Content(MessageBase.MssagePack(nameof(reinitialize), false, $"二次确认的key不正确"), "application/json");
+                return Content(MessageBase.MessagePack(nameof(reinitialize), false, $"二次确认的key不正确"), "application/json");
             }
             else
             {
@@ -344,7 +344,7 @@ namespace Server.WebAppServices.Api
                     }
                     Environment.FailFast("核心配置被重置，手动触发异常，停止运行。");
                 });
-                return Content(MessageBase.MssagePack(nameof(reinitialize), true,
+                return Content(MessageBase.MessagePack(nameof(reinitialize), true,
                     $"正在进行重新初始化，二次确认完成。所有现有配置文件清空，3秒后程序自动结束运行。请自行重新启动应进程。"),
                     "application/json");
             }
@@ -370,7 +370,7 @@ namespace Server.WebAppServices.Api
         public ActionResult Post(PostCommonParameters commonParameters, [FromForm] long cut_time)
         {
             Core.Config.Core_RunConfig._CutAccordingToTime = cut_time;
-            return Content(MessageBase.MssagePack(nameof(set_cut_according_time), "", $"根据录制时长切割视频文件的时长设置为{cut_time}秒"), "application/json");
+            return Content(MessageBase.MessagePack(nameof(set_cut_according_time), "", $"根据录制时长切割视频文件的时长设置为{cut_time}秒"), "application/json");
         }
     }
 
@@ -392,7 +392,7 @@ namespace Server.WebAppServices.Api
         public ActionResult Post(PostCommonParameters commonParameters, [FromForm] long size)
         {
             Core.Config.Core_RunConfig._CutAccordingToSize = size;
-            return Content(MessageBase.MssagePack(nameof(set_cut_according_size), "", $"根据录制时长切割视频文件的大小设置为{size}byte"), "application/json");
+            return Content(MessageBase.MessagePack(nameof(set_cut_according_size), "", $"根据录制时长切割视频文件的大小设置为{size}byte"), "application/json");
         }
     }
 
@@ -418,7 +418,7 @@ namespace Server.WebAppServices.Api
                 {"time",Core.Config.Core_RunConfig._CutAccordingToTime}
             };
             
-            return Content(MessageBase.MssagePack(nameof(get_cut_according_config), cut_config,""), "application/json");
+            return Content(MessageBase.MessagePack(nameof(get_cut_according_config), cut_config,""), "application/json");
         }
     }
 
@@ -446,11 +446,11 @@ namespace Server.WebAppServices.Api
         {
             if (size <= 0)
             {
-                return Content(MessageBase.MssagePack(nameof(set_room_cut_according_to_size), false, "设置的切割大小不正确", code.OperationFailed), "application/json");
+                return Content(MessageBase.MessagePack(nameof(set_room_cut_according_to_size), false, "设置的切割大小不正确", code.OperationFailed), "application/json");
             }
             if (uid == 0 && roomid == 0)
             {
-                return Content(MessageBase.MssagePack(nameof(set_room_cut_according_to_size), false, "UID和房间号不正确", code.OperationFailed), "application/json");
+                return Content(MessageBase.MessagePack(nameof(set_room_cut_according_to_size), false, "UID和房间号不正确", code.OperationFailed), "application/json");
             }
             RoomCardClass Card = new RoomCardClass();
             if (uid != 0)
@@ -459,14 +459,14 @@ namespace Server.WebAppServices.Api
             }
             else if (roomid != 0)
             {
-                _Room.GetCardFoRoomId(roomid, ref Card);
+                _Room.GetCardForRoomId(roomid, ref Card);
             }
             if (Card == null)
             {
-                return Content(MessageBase.MssagePack(nameof(set_room_cut_according_to_size), false, "没有找到对应的直播间，请检查输入的uid和roomid", code.OperationFailed), "application/json");
+                return Content(MessageBase.MessagePack(nameof(set_room_cut_according_to_size), false, "没有找到对应的直播间，请检查输入的uid和roomid", code.OperationFailed), "application/json");
             }
             Card.RoomCutAccordingToSize = size;
-            return Content(MessageBase.MssagePack(nameof(set_room_cut_according_to_size), "", $"设置房间[{(uid == 0 ? "rooid:" + roomid : "uid:" + uid)}]根据录制时长切割视频文件的大小设置为{size}byte"), "application/json");
+            return Content(MessageBase.MessagePack(nameof(set_room_cut_according_to_size), "", $"设置房间[{(uid == 0 ? "rooid:" + roomid : "uid:" + uid)}]根据录制时长切割视频文件的大小设置为{size}byte"), "application/json");
         }
     }
     [Produces(MediaTypeNames.Application.Json)]
@@ -490,11 +490,11 @@ namespace Server.WebAppServices.Api
         {
             if (cut_time <= 0)
             {
-                return Content(MessageBase.MssagePack(nameof(set_room_cut_according_to_time), false, "设置的切割时间不正确", code.OperationFailed), "application/json");
+                return Content(MessageBase.MessagePack(nameof(set_room_cut_according_to_time), false, "设置的切割时间不正确", code.OperationFailed), "application/json");
             }
             if (uid == 0 && roomid == 0)
             {
-                return Content(MessageBase.MssagePack(nameof(set_room_cut_according_to_time), false, "UID和房间号不正确", code.OperationFailed), "application/json");
+                return Content(MessageBase.MessagePack(nameof(set_room_cut_according_to_time), false, "UID和房间号不正确", code.OperationFailed), "application/json");
             }
             RoomCardClass Card = new RoomCardClass();
             if (uid != 0)
@@ -503,14 +503,14 @@ namespace Server.WebAppServices.Api
             }
             else if (roomid != 0)
             {
-                _Room.GetCardFoRoomId(roomid, ref Card);
+                _Room.GetCardForRoomId(roomid, ref Card);
             }
             if (Card == null)
             {
-                return Content(MessageBase.MssagePack(nameof(set_room_cut_according_to_time), false, "没有找到对应的直播间，请检查输入的uid和roomid", code.OperationFailed), "application/json");
+                return Content(MessageBase.MessagePack(nameof(set_room_cut_according_to_time), false, "没有找到对应的直播间，请检查输入的uid和roomid", code.OperationFailed), "application/json");
             }
             Card.RoomCutAccordingToTime = cut_time;
-            return Content(MessageBase.MssagePack(nameof(set_room_cut_according_to_time), "", $"设置房间[{(uid == 0 ? "rooid:" + roomid : "uid:" + uid)}]根据录制时长切割视频文件的时长设置为{cut_time}秒"), "application/json");
+            return Content(MessageBase.MessagePack(nameof(set_room_cut_according_to_time), "", $"设置房间[{(uid == 0 ? "rooid:" + roomid : "uid:" + uid)}]根据录制时长切割视频文件的时长设置为{cut_time}秒"), "application/json");
         }
     }
     [Produces(MediaTypeNames.Application.Json)]
@@ -538,15 +538,15 @@ namespace Server.WebAppServices.Api
             }
             else if (roomid != 0)
             {
-                _Room.GetCardFoRoomId(roomid, ref Card);
+                _Room.GetCardForRoomId(roomid, ref Card);
             }
             else
             {
-                return Content(MessageBase.MssagePack(nameof(get_room_cut_according_config), false, "UID和房间号不正确", code.OperationFailed), "application/json");
+                return Content(MessageBase.MessagePack(nameof(get_room_cut_according_config), false, "UID和房间号不正确", code.OperationFailed), "application/json");
             }
             if (Card == null)
             {
-                return Content(MessageBase.MssagePack(nameof(get_room_cut_according_config), false, "没有找到对应的直播间，请检查输入的uid和roomid", code.OperationFailed), "application/json");
+                return Content(MessageBase.MessagePack(nameof(get_room_cut_according_config), false, "没有找到对应的直播间，请检查输入的uid和roomid", code.OperationFailed), "application/json");
             }
             
             Dictionary<string, long> cut_config = new Dictionary<string, long>()
@@ -555,7 +555,7 @@ namespace Server.WebAppServices.Api
                 {"time",Card.RoomCutAccordingToTime}
             };
 
-            return Content(MessageBase.MssagePack(nameof(get_room_cut_according_config), cut_config, ""), "application/json");
+            return Content(MessageBase.MessagePack(nameof(get_room_cut_according_config), cut_config, ""), "application/json");
         }
     }
 }

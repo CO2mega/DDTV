@@ -48,7 +48,7 @@ namespace Server.WebAppServices.Api
                     waitTime += 1000;
                 }
             }
-            return Content(MessageBase.MssagePack(nameof(get_login_qr), false, $"登陆二维码不存在，请检查是否调用登陆接口且未过期"), "application/json");
+            return Content(MessageBase.MessagePack(nameof(get_login_qr), false, $"登陆二维码不存在，请检查是否调用登陆接口且未过期"), "application/json");
         }
     }
 
@@ -68,11 +68,11 @@ namespace Server.WebAppServices.Api
             string URL = await Core.RuntimeObject.Login.get_login_urlAsync();
             if(string.IsNullOrEmpty(URL))
             {
-                 return Content(MessageBase.MssagePack(nameof(get_login_url), false, $"登陆文件不存在，请检查是否调用登陆接口且未过期"), "application/json");
+                 return Content(MessageBase.MessagePack(nameof(get_login_url), false, $"登陆文件不存在，请检查是否调用登陆接口且未过期"), "application/json");
             }
             else
             {
-                 return Content(MessageBase.MssagePack(nameof(get_login_url), URL, $"获取用于生成登陆二维码的URL字符串"), "application/json");
+                 return Content(MessageBase.MessagePack(nameof(get_login_url), URL, $"获取用于生成登陆二维码的URL字符串"), "application/json");
             }  
         }
     }
@@ -98,7 +98,7 @@ namespace Server.WebAppServices.Api
                 Core.Config.Core_RunConfig._UseAgree = true;   
                 OperationQueue.Add(Opcode.Account.UserConsentAgreement, Message);
                 Log.Info(nameof(use_agree), Message);
-                return Content(MessageBase.MssagePack(nameof(use_agree), true, Message), "application/json");
+                return Content(MessageBase.MessagePack(nameof(use_agree), true, Message), "application/json");
             }
             else
             {
@@ -106,7 +106,7 @@ namespace Server.WebAppServices.Api
                 Message = "用户未同意使用须知";
                 OperationQueue.Add(Opcode.Account.UserDoesNotAgreeToAgreement, Message);
                 Log.Info(nameof(use_agree), Message);
-                return Content(MessageBase.MssagePack(nameof(use_agree), false, Message, code.LoginInfoFailure), "application/json");
+                return Content(MessageBase.MessagePack(nameof(use_agree), false, Message, code.LoginInfoFailure), "application/json");
             }
         }
     }
@@ -125,7 +125,7 @@ namespace Server.WebAppServices.Api
         public async Task<ActionResult> Post(PostCommonParameters commonParameters)
         {
             await Login.QR();
-            return Content(MessageBase.MssagePack(nameof(re_login), true, $"触发登陆功能，请在1分钟内使用get_login_qr获取登陆二维码进行登陆", code.LoginInfoFailure), "application/json");
+            return Content(MessageBase.MessagePack(nameof(re_login), true, $"触发登陆功能，请在1分钟内使用get_login_qr获取登陆二维码进行登陆", code.LoginInfoFailure), "application/json");
         }
     }
     [Produces(MediaTypeNames.Application.Json)]
@@ -142,7 +142,7 @@ namespace Server.WebAppServices.Api
         [HttpPost(Name = "use_agree_state")]
         public ActionResult Post(PostCommonParameters commonParameters)
         {
-            return Content(MessageBase.MssagePack(nameof(use_agree_state), Core.Config.Core_RunConfig._UseAgree, $"获取用户初始化授权状态"), "application/json");
+            return Content(MessageBase.MessagePack(nameof(use_agree_state), Core.Config.Core_RunConfig._UseAgree, $"获取用户初始化授权状态"), "application/json");
         }
     }
     [Produces(MediaTypeNames.Application.Json)]
@@ -159,7 +159,7 @@ namespace Server.WebAppServices.Api
         [HttpPost(Name = "get_login_status")]
         public ActionResult Post(PostCommonParameters commonParameters)
         {
-            return Content(MessageBase.MssagePack(nameof(get_login_status), Core.RuntimeObject.Account.GetLoginStatus(), $"获取本地登录态AccountInformation的有效状态"), "application/json");
+            return Content(MessageBase.MessagePack(nameof(get_login_status), Core.RuntimeObject.Account.GetLoginStatus(), $"获取本地登录态AccountInformation的有效状态"), "application/json");
         }
     }
     [Produces(MediaTypeNames.Application.Json)]
@@ -176,7 +176,7 @@ namespace Server.WebAppServices.Api
         [HttpGet(Name = "get_nav")]
         public ActionResult Get(GetCommonParameters commonParameters)
         {
-            return Content(MessageBase.MssagePack(nameof(get_nav), Account.nav_info, $""), "application/json");
+            return Content(MessageBase.MessagePack(nameof(get_nav), Account.nav_info, $""), "application/json");
         }
     }
 }

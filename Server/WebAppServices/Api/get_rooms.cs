@@ -40,7 +40,7 @@ namespace Server.WebAppServices.Api
         public ActionResult Post(PostCommonParameters commonParameters)
         {
             (int MonitoringCount, int LiveCount, int RecCount) count = Core.RuntimeObject._Room.Overview.GetRoomStatisticsOverview();
-            return Content(MessageBase.MssagePack(nameof(room_information), count), "application/json");
+            return Content(MessageBase.MessagePack(nameof(room_information), count), "application/json");
         }
     }
 
@@ -68,15 +68,15 @@ namespace Server.WebAppServices.Api
             RoomCardClass roomCardClass = new RoomCardClass();
             if(uid!=0 && _Room.GetCardForUID(uid,ref roomCardClass))
             {
-                return Content(MessageBase.MssagePack(nameof(room_information), roomCardClass), "application/json");
+                return Content(MessageBase.MessagePack(nameof(room_information), roomCardClass), "application/json");
             }
-            else if(room_id!=0 && _Room.GetCardFoRoomId(room_id,ref roomCardClass))
+            else if(room_id!=0 && _Room.GetCardForRoomId(room_id,ref roomCardClass))
             {
-                return Content(MessageBase.MssagePack(nameof(room_information), roomCardClass), "application/json");
+                return Content(MessageBase.MessagePack(nameof(room_information), roomCardClass), "application/json");
             }
             else
             {
-                return Content(MessageBase.MssagePack(nameof(room_information), false,"请求的房间不存在",code.OperationFailed), "application/json");
+                return Content(MessageBase.MessagePack(nameof(room_information), false,"请求的房间不存在",code.OperationFailed), "application/json");
             }      
         }
     }
@@ -106,11 +106,11 @@ namespace Server.WebAppServices.Api
             Core.RuntimeObject._Room.Overview.CardData completeRoomInfoRes = Core.RuntimeObject._Room.Overview.GetCardOverview(quantity,page,type,screen_name);
             if(completeRoomInfoRes==null)
             {
-                return Content(MessageBase.MssagePack(nameof(batch_complete_room_information), "", "请求错误", code.ParameterError), "application/json");
+                return Content(MessageBase.MessagePack(nameof(batch_complete_room_information), "", "请求错误", code.ParameterError), "application/json");
             }
             else
             {
-                return Content(MessageBase.MssagePack(nameof(batch_complete_room_information), completeRoomInfoRes), "application/json");
+                return Content(MessageBase.MessagePack(nameof(batch_complete_room_information), completeRoomInfoRes), "application/json");
             }
         }
     }
@@ -198,11 +198,11 @@ namespace Server.WebAppServices.Api
                 }
                 roomList.Clear();
                 roomList = null;
-                return Content(MessageBase.MssagePack(nameof(batch_basic_room_information), basicRoomInfoRes), "application/json");
+                return Content(MessageBase.MessagePack(nameof(batch_basic_room_information), basicRoomInfoRes), "application/json");
             }
             catch (Exception)
             {
-                return Content(MessageBase.MssagePack(nameof(batch_basic_room_information), "", "请求错误", code.ParameterError), "application/json");
+                return Content(MessageBase.MessagePack(nameof(batch_basic_room_information), "", "请求错误", code.ParameterError), "application/json");
             }
         }
         public class Data

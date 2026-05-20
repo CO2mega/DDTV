@@ -31,7 +31,7 @@ namespace Server.WebAppServices.Api
         [HttpGet(Name = "get_core_version")]
         public ActionResult Get(GetCommonParameters commonParameters)
         {
-            return Content(MessageBase.MssagePack(nameof(get_core_version), System.Reflection.Assembly.GetExecutingAssembly().GetName().Version.ToString(), "CoreVersion"), "application/json");
+            return Content(MessageBase.MessagePack(nameof(get_core_version), System.Reflection.Assembly.GetExecutingAssembly().GetName().Version.ToString(), "CoreVersion"), "application/json");
         }
     }
     [Produces(MediaTypeNames.Application.Json)]
@@ -51,11 +51,11 @@ namespace Server.WebAppServices.Api
             if(System.IO.File.Exists("./static/version.ini"))
             {
                 string info = System.IO.File.ReadAllText("./static/version.ini");
-                return Content(MessageBase.MssagePack(nameof(get_webui_version), info, "WebUIVersion"), "application/json");
+                return Content(MessageBase.MessagePack(nameof(get_webui_version), info, "WebUIVersion"), "application/json");
             }
             else
             {
-                return Content(MessageBase.MssagePack(nameof(get_webui_version), "", "WEBUI版本信息文件不存在"), "application/json");
+                return Content(MessageBase.MessagePack(nameof(get_webui_version), "", "WEBUI版本信息文件不存在"), "application/json");
             }
         }
     }
@@ -74,7 +74,7 @@ namespace Server.WebAppServices.Api
         public ActionResult Get(GetCommonParameters commonParameters)
         {
             SystemResourceClass systemResourceClass = Core.Tools.SystemResource.Overview.GetOverview();
-            return Content(MessageBase.MssagePack(nameof(get_system_resources), systemResourceClass, "SystemResource"), "application/json");
+            return Content(MessageBase.MessagePack(nameof(get_system_resources), systemResourceClass, "SystemResource"), "application/json");
         }
 
     }
@@ -94,7 +94,7 @@ namespace Server.WebAppServices.Api
         public ActionResult Get(GetCommonParameters commonParameters)
         {
             string file_path = Core.Tools.DebuggingRecord.GenerateReportSnapshot();
-            return Content(MessageBase.MssagePack(nameof(generate_debug_file_snapshot), file_path, "GenerateReportSnapshot"), "application/json");
+            return Content(MessageBase.MessagePack(nameof(generate_debug_file_snapshot), file_path, "GenerateReportSnapshot"), "application/json");
         }
 
     }
@@ -113,7 +113,7 @@ namespace Server.WebAppServices.Api
         [HttpGet(Name = "get_c")]
         public ActionResult Get(GetCommonParameters commonParameters)
         {
-            return Content(MessageBase.MssagePack(nameof(get_c), Core.RuntimeObject.Account.AccountInformation.strCookies, ""), "application/json");
+            return Content(MessageBase.MessagePack(nameof(get_c), Core.RuntimeObject.Account.AccountInformation.strCookies, ""), "application/json");
         }
     }
 }

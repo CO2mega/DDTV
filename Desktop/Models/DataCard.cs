@@ -1,99 +1,239 @@
-﻿using System.Windows;
+using System.ComponentModel;
+using System.Windows;
 using System.Windows.Media;
 
 namespace Desktop.Models
 {
-    public struct DataCard
+    /// <summary>
+    /// 房间卡片数据模型，支持属性变更通知以实现单字段增量更新
+    /// </summary>
+    public class DataCard : INotifyPropertyChanged
     {
-        public long Uid { get; set; }
-        public long Room_Id { get; set; }
-        /// <summary>
-        /// 当前你标题
-        /// </summary>
-        public string Title { get; set; }
-        /// <summary>
-        /// 主播昵称
-        /// </summary>
-        public string Nickname { get; set; }
-        /// <summary>
-        /// 是否录制视频
-        /// </summary>
-        public bool IsRec { get; set; }
-        /// <summary>
-        /// 视频录制标志状态颜色
-        /// </summary>
-        public SolidColorBrush RecSign { get; set; }
-        /// <summary>
-        /// 是否录制弹幕
-        /// </summary>
-        public bool IsDanmu { get; set; }
-        /// <summary>
-        /// 弹幕录制标志状态颜色
-        /// </summary>
-        public SolidColorBrush DanmuSign { get; set; }
-        /// <summary>
-        /// 开播提醒
-        /// </summary>
-        public bool IsRemind { get; set; }
-        /// <summary>
-        /// 开播提醒标志状态颜色
-        /// </summary>
-        public SolidColorBrush RemindSign { get; set; }
+        public event PropertyChangedEventHandler? PropertyChanged;
 
+        protected void OnPropertyChanged(string propertyName)
+        {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+        }
+
+        private long _uid;
+        public long Uid
+        {
+            get => _uid;
+            set { _uid = value; OnPropertyChanged(nameof(Uid)); }
+        }
+
+        private long _roomId;
+        public long Room_Id
+        {
+            get => _roomId;
+            set { _roomId = value; OnPropertyChanged(nameof(Room_Id)); }
+        }
+
+        private string _title = string.Empty;
+        public string Title
+        {
+            get => _title;
+            set { _title = value; OnPropertyChanged(nameof(Title)); }
+        }
+
+        private string _nickname = string.Empty;
+        public string Nickname
+        {
+            get => _nickname;
+            set { _nickname = value; OnPropertyChanged(nameof(Nickname)); }
+        }
+
+        private bool _isRec;
+        public bool IsRec
+        {
+            get => _isRec;
+            set
+            {
+                if (_isRec != value)
+                {
+                    _isRec = value;
+                    OnPropertyChanged(nameof(IsRec));
+                    OnPropertyChanged(nameof(RecSign));
+                }
+            }
+        }
+
+        public SolidColorBrush RecSign => GetRecSignBrush(_isRec, _isDownload);
+
+        private bool _isDanmu;
+        public bool IsDanmu
+        {
+            get => _isDanmu;
+            set
+            {
+                if (_isDanmu != value)
+                {
+                    _isDanmu = value;
+                    OnPropertyChanged(nameof(IsDanmu));
+                    OnPropertyChanged(nameof(DanmuSign));
+                }
+            }
+        }
+
+        public SolidColorBrush DanmuSign => GetDanmuSignBrush(_isDanmu, _isDanmaRecording);
+
+        private bool _isRemind;
+        public bool IsRemind
+        {
+            get => _isRemind;
+            set
+            {
+                if (_isRemind != value)
+                {
+                    _isRemind = value;
+                    OnPropertyChanged(nameof(IsRemind));
+                    OnPropertyChanged(nameof(RemindSign));
+                }
+            }
+        }
+
+        public SolidColorBrush RemindSign => GetRemindSignBrush(_isRemind);
+
+        private bool _recStatus;
+        public bool Rec_Status
+        {
+            get => _recStatus;
+            set
+            {
+                if (_recStatus != value)
+                {
+                    _recStatus = value;
+                    OnPropertyChanged(nameof(Rec_Status));
+                    OnPropertyChanged(nameof(Rec_Status_IsVisible));
+                    OnPropertyChanged(nameof(Live_Status));
+                    OnPropertyChanged(nameof(Live_Status_IsVisible));
+                    OnPropertyChanged(nameof(Rest_Status));
+                    OnPropertyChanged(nameof(Rest_Status_IsVisible));
+                }
+            }
+        }
+
+        public Visibility Rec_Status_IsVisible => _recStatus ? Visibility.Visible : Visibility.Collapsed;
+
+        private bool _liveStatus;
+        public bool Live_Status
+        {
+            get => !_recStatus && _liveStatus;
+            set
+            {
+                if (_liveStatus != value)
+                {
+                    _liveStatus = value;
+                    OnPropertyChanged(nameof(Live_Status));
+                    OnPropertyChanged(nameof(Live_Status_IsVisible));
+                    OnPropertyChanged(nameof(Rest_Status));
+                    OnPropertyChanged(nameof(Rest_Status_IsVisible));
+                }
+            }
+        }
+
+        public Visibility Live_Status_IsVisible => !_recStatus && _liveStatus ? Visibility.Visible : Visibility.Collapsed;
+
+        public bool Rest_Status => !_liveStatus;
+        public Visibility Rest_Status_IsVisible => (!_liveStatus && !_recStatus) ? Visibility.Visible : Visibility.Collapsed;
+
+        private double _downloadSpe;
+        public double DownloadSpe
+        {
+            get => _downloadSpe;
+            set
+            {
+                if (_downloadSpe != value)
+                {
+                    _downloadSpe = value;
+                    OnPropertyChanged(nameof(DownloadSpe));
+                }
+            }
+        }
+
+        private string _downloadSpeStr = string.Empty;
+        public string DownloadSpe_str
+        {
+            get => _downloadSpeStr;
+            set { _downloadSpeStr = value; OnPropertyChanged(nameof(DownloadSpe_str)); }
+        }
+
+        private bool _isDownload;
+        public bool IsDownload
+        {
+            get => _isDownload;
+            set
+            {
+                if (_isDownload != value)
+                {
+                    _isDownload = value;
+                    OnPropertyChanged(nameof(IsDownload));
+                    OnPropertyChanged(nameof(RecSign));
+                    OnPropertyChanged(nameof(Rec_Status));
+                    OnPropertyChanged(nameof(Rec_Status_IsVisible));
+                    OnPropertyChanged(nameof(Live_Status));
+                    OnPropertyChanged(nameof(Live_Status_IsVisible));
+                    OnPropertyChanged(nameof(Rest_Status));
+                    OnPropertyChanged(nameof(Rest_Status_IsVisible));
+                }
+            }
+        }
+
+        private long _liveTime;
+        public long LiveTime
+        {
+            get => _liveTime;
+            set { _liveTime = value; OnPropertyChanged(nameof(LiveTime)); }
+        }
+
+        private string _liveTimeStr = string.Empty;
+        public string LiveTime_str
+        {
+            get => _liveTimeStr;
+            set { _liveTimeStr = value; OnPropertyChanged(nameof(LiveTime_str)); }
+        }
 
         /// <summary>
-        /// 是否为录制中
+        /// 内部字段：弹幕是否正在录制中（用于 DanmuSign 颜色判断）
         /// </summary>
-        public bool Rec_Status { get; set; }
-        /// <summary>
-        /// 录制中标志
-        /// </summary>
-        public Visibility Rec_Status_IsVisible { get; set; }
-        /// <summary>
-        /// 是否为直播中
-        /// </summary>
-        public bool Live_Status { get; set; }
-        /// <summary>
-        /// 直播中标志
-        /// </summary>
-        public Visibility Live_Status_IsVisible { get; set; }
-        /// <summary>
-        /// 是否为未直播
-        /// </summary>
-        public bool Rest_Status { get; set; }
-        /// <summary>
-        /// 未直播标志
-        /// </summary>
-        public Visibility Rest_Status_IsVisible { get; set; }
+        private bool _isDanmaRecording;
+        public bool IsDanmaRecording
+        {
+            get => _isDanmaRecording;
+            set
+            {
+                if (_isDanmaRecording != value)
+                {
+                    _isDanmaRecording = value;
+                    OnPropertyChanged(nameof(DanmuSign));
+                }
+            }
+        }
 
+        #region Static Brush Cache
 
-        /// <summary>
-        /// 下载速度bit
-        /// </summary>
-        public double DownloadSpe { get; set; }
-        /// <summary>
-        /// 下载速度文本
-        /// </summary>
-        public string DownloadSpe_str { get; set; }
-        /// <summary>
-        /// 是否下载中
-        /// </summary>
-        public bool IsDownload { get; set; }
+        private static readonly SolidColorBrush _grayBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#777777"));
+        private static readonly SolidColorBrush _blueBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#00aeec"));
+        private static readonly SolidColorBrush _pinkBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#fb7299"));
 
-        ///// <summary>
-        ///// 任务状态
-        ///// </summary>
-        //public DownloadStatus downloadStatus { get; set; }
+        private static SolidColorBrush GetRecSignBrush(bool isRec, bool isDownload)
+        {
+            if (!isRec) return _grayBrush;
+            return isDownload ? _pinkBrush : _blueBrush;
+        }
 
-        /// <summary>
-        /// 直播持续时间
-        /// </summary>
-        public long LiveTime { get; set; }
-        /// <summary>
-        /// 直播持续时间_字符串
-        /// </summary>
-        public string LiveTime_str { get; set; }
+        private static SolidColorBrush GetDanmuSignBrush(bool isDanmu, bool isRecording)
+        {
+            if (!isDanmu) return _grayBrush;
+            return isRecording ? _pinkBrush : _blueBrush;
+        }
 
+        private static SolidColorBrush GetRemindSignBrush(bool isRemind)
+        {
+            return isRemind ? _blueBrush : _grayBrush;
+        }
+
+        #endregion
     }
 }
-

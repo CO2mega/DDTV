@@ -14,12 +14,10 @@ using SixLabors.ImageSharp.Drawing;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Formats.Tar;
 using System.IO.Compression;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
-using System.Runtime.ConstrainedExecution;
 using System.Security.AccessControl;
 using System.Security.Cryptography;
 using System.Text;
@@ -139,7 +137,7 @@ namespace Core.Tools
                 process.StartInfo.FileName = "./Update/Update.exe";
                 process.StartInfo.Arguments = $"{(Core.Config.Core_RunConfig._DevelopmentVersion ? "dev" : "release")}";
                 process.Start();
-                Environment.Exit(-114514);
+                Environment.Exit(Core.Init.ExitCodes.FatalError);
             }
             else
             {

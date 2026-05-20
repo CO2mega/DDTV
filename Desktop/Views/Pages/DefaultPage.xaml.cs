@@ -14,7 +14,6 @@ using System.Windows.Media;
 using static Core.Tools.DokiDoki;
 using static Core.Tools.SystemResource.Overview;
 using static Server.WebAppServices.Api.get_system_resources;
-using static System.Windows.Forms.AxHost;
 using Core.RuntimeObject;
 
 namespace Desktop.Views.Pages;
@@ -25,12 +24,12 @@ namespace Desktop.Views.Pages;
 public partial class DefaultPage
 {
     internal static HomePageModels PageComboBoxItems { get; private set; }
-    private Timer RoomStatisticsTimer;
-    private Timer UpdateHardwareResourceUtilizationRateTimer;
-    private Timer UpdateRuntimeStatisticsTimer;
-    private Timer UpdateAnnouncementTimer;
-    private Timer ProxyDetectionTimer;
-    private Timer IpvDetectionTimer;
+    private System.Threading.Timer RoomStatisticsTimer;
+    private System.Threading.Timer UpdateHardwareResourceUtilizationRateTimer;
+    private System.Threading.Timer UpdateRuntimeStatisticsTimer;
+    private System.Threading.Timer UpdateAnnouncementTimer;
+    private System.Threading.Timer ProxyDetectionTimer;
+    private System.Threading.Timer IpvDetectionTimer;
 
     public DefaultPage()
     {
@@ -40,19 +39,18 @@ public partial class DefaultPage
         this.DataContext = PageComboBoxItems;
 
         //更新房间统计
-        RoomStatisticsTimer = new Timer(UpdateRoomStatistics, null, 1, 3000);
+        RoomStatisticsTimer = new System.Threading.Timer(async _ => await UpdateRoomStatisticsAsync(), null, 1, 3000);
         //更新硬件使用率
-        UpdateHardwareResourceUtilizationRateTimer = new Timer(UpdateHardwareResourceUtilizationRate, null, 1000, 60 * 1000);
+        UpdateHardwareResourceUtilizationRateTimer = new System.Threading.Timer(async _ => await UpdateHardwareResourceUtilizationRateAsync(), null, 1000, 60 * 1000);
         //更新运行时长
-        UpdateRuntimeStatisticsTimer = new Timer(UpdateRuntimeStatistics, null, 1000, 1000);
+        UpdateRuntimeStatisticsTimer = new System.Threading.Timer(_ => UpdateRuntimeStatistics(), null, 1000, 1000);
         //更新公告
-        UpdateAnnouncementTimer = new Timer(UpdateAnnouncement, null, 1, 1000 * 60 * 60);
+        UpdateAnnouncementTimer = new System.Threading.Timer(async _ => await UpdateAnnouncementAsync(), null, 1, 1000 * 60 * 60);
         //代理状态检测
-        ProxyDetectionTimer = new Timer(ProxyDetection, null, 1, 1000 * 60 * 30);
+        ProxyDetectionTimer = new System.Threading.Timer(_ => ProxyDetection(), null, 1, 1000 * 60 * 30);
         //IP版本检测
-        IpvDetectionTimer = new Timer(IpvDetection, null, 1, 1000 * 60 * 30);
+        IpvDetectionTimer = new System.Threading.Timer(async _ => await IpvDetectionAsync(), null, 1, 1000 * 60 * 30);
         WarningMessageAnimation();
-        
     }
 
     /// <summary>
@@ -62,7 +60,6 @@ public partial class DefaultPage
     {
         int basicTime = 400;
 
-        // 创建一个颜色动画
         ColorAnimationUsingKeyFrames colorAnimation = new ColorAnimationUsingKeyFrames();
         colorAnimation.KeyFrames.Add(new LinearColorKeyFrame(Colors.Red, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(basicTime * 0))));
         colorAnimation.KeyFrames.Add(new LinearColorKeyFrame(Colors.Orange, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(basicTime * 1))));
@@ -79,13 +76,10 @@ public partial class DefaultPage
         colorAnimation.KeyFrames.Add(new LinearColorKeyFrame(Colors.Red, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(basicTime * 12))));
         colorAnimation.RepeatBehavior = RepeatBehavior.Forever;
 
-        // 创建一个线性渐变刷，并将动画应用到其中一个渐变停止的颜色上
         LinearGradientBrush brush = new LinearGradientBrush();
         GradientStop stop = new GradientStop();
         brush.GradientStops.Add(stop);
         stop.BeginAnimation(GradientStop.ColorProperty, colorAnimation);
-
-        // 将刷子应用到TextBlock的前景色上
         WarningMessage.Foreground = brush;
     }
 
@@ -141,29 +135,26 @@ public partial class DefaultPage
     }
 
     /// <summary>
-    /// 更新公告
+    /// 异步更新公告
     /// </summary>
-    /// <param name="state"></param>
-    public static void UpdateAnnouncement(object state)
+    public static async Task UpdateAnnouncementAsync()
     {
-
         try
         {
-            string announcement = Core.Tools.ProgramUpdates.Get("/announcement.txt");
+            string announcement = await Task.Run(() => Core.Tools.ProgramUpdates.Get("/announcement.txt"));
             PageComboBoxItems.announcement = announcement;
             PageComboBoxItems.OnPropertyChanged("announcement");
         }
         catch (Exception ex)
         {
-            Log.Warn(nameof(UpdateAnnouncement), "更新公告出现错误，错误堆栈已写文本记录文件", ex, false);
+            Log.Warn(nameof(UpdateAnnouncementAsync), "更新公告出现错误", ex, false);
         }
     }
 
     /// <summary>
     /// 检测代理状态
     /// </summary>
-    /// <param name="state"></param>
-    public static void ProxyDetection(object state)
+    public static void ProxyDetection()
     {
         try
         {
@@ -193,65 +184,62 @@ public partial class DefaultPage
     }
 
     /// <summary>
-    /// 检测IP版本
+    /// 异步检测IP版本（移到低优先级线程执行）
     /// </summary>
-    /// <param name="state"></param>
-    public static void IpvDetection(object state)
+    public static async Task IpvDetectionAsync()
     {
         try
         {
-            string url = Config.Core_RunConfig._LiveDomainName.ToLower().Replace("https://", "").Replace("http://", "");
-            IPHostEntry hostEntry = Dns.GetHostEntry(url);
-            foreach (IPAddress ipAddress in hostEntry.AddressList)
+            await Task.Run(() =>
             {
-                Socket tempSocket = new Socket(ipAddress.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
-
-                tempSocket.Connect(new IPEndPoint(ipAddress, 80));
-
-                if (tempSocket.Connected)
+                string url = Config.Core_RunConfig._LiveDomainName.ToLower().Replace("https://", "").Replace("http://", "");
+                IPHostEntry hostEntry = Dns.GetHostEntry(url);
+                foreach (IPAddress ipAddress in hostEntry.AddressList)
                 {
-                    switch (tempSocket.AddressFamily)
-                    {
-                        case AddressFamily.InterNetwork:
-                            SetIpvState("目前使用的IPv4协议");
-                            break;
-                        case AddressFamily.InterNetworkV6:
-                            SetIpvState("目前使用的IPv6协议");
-                            Log.Info(nameof(IpvDetection), $"当前为IPv6访问状态", false);
-                            break;
-                    }
+                    using Socket tempSocket = new Socket(ipAddress.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+                    tempSocket.Connect(new IPEndPoint(ipAddress, 80));
 
-                    tempSocket.Close();
-                    break;
+                    if (tempSocket.Connected)
+                    {
+                        switch (tempSocket.AddressFamily)
+                        {
+                            case AddressFamily.InterNetwork:
+                                SetIpvState("目前使用的IPv4协议");
+                                break;
+                            case AddressFamily.InterNetworkV6:
+                                SetIpvState("目前使用的IPv6协议");
+                                Log.Info(nameof(IpvDetectionAsync), $"当前为IPv6访问状态", false);
+                                break;
+                        }
+                        break;
+                    }
                 }
-            }
+            });
         }
         catch (Exception ex)
         {
-            Log.Warn(nameof(IpvDetection), $"检测IP版本出现错误,{ex.ToString()}", ex, false);
+            Log.Warn(nameof(IpvDetectionAsync), $"检测IP版本出现错误,{ex.ToString()}", ex, false);
         }
     }
 
     /// <summary>
-    /// 更新房间统计
+    /// 异步更新房间统计
     /// </summary>
-    /// <param name="state"></param>
-    public static void UpdateRoomStatistics(object state)
+    public static async Task UpdateRoomStatisticsAsync()
     {
-
         try
         {
             (int MonitoringCount, int LiveCount, int RecCount) count = new();
 
             if (Core.Config.Core_RunConfig._DesktopRemoteServer || Core.Config.Core_RunConfig._LocalHTTPMode)
             {
-                count = NetWork.Post.PostBody<(int MonitoringCount, int LiveCount, int RecCount)>($"{Config.Core_RunConfig._DesktopIP}:{Config.Core_RunConfig._DesktopPort}/api/get_rooms/room_statistics").Result;
+                count = await NetWork.Post.PostBody<(int MonitoringCount, int LiveCount, int RecCount)>(
+                    $"{Config.Core_RunConfig._DesktopIP}:{Config.Core_RunConfig._DesktopPort}/api/get_rooms/room_statistics");
             }
             else
             {
                 count = Core.RuntimeObject._Room.Overview.GetRoomStatisticsOverview();
             }
-
 
             SetMonitoringCount(count.MonitoringCount);
             SetLiveCount(count.LiveCount);
@@ -259,30 +247,28 @@ public partial class DefaultPage
         }
         catch (Exception ex)
         {
-            Log.Warn(nameof(UpdateRoomStatistics), "更新房间统计出现错误，错误堆栈已写文本记录文件", ex, false);
+            Log.Warn(nameof(UpdateRoomStatisticsAsync), "更新房间统计出现错误", ex, false);
         }
     }
 
     /// <summary>
-    /// 更新硬件资源使用率
+    /// 异步更新硬件资源使用率
     /// </summary>
-    /// <param name="state"></param>
-    public static void UpdateHardwareResourceUtilizationRate(object state)
+    public static async Task UpdateHardwareResourceUtilizationRateAsync()
     {
         try
         {
             SystemResourceClass systemResourceClass = new();
             if (Core.Config.Core_RunConfig._DesktopRemoteServer || Core.Config.Core_RunConfig._LocalHTTPMode)
             {
-                systemResourceClass = NetWork.Get.GetBody<SystemResourceClass>($"{Config.Core_RunConfig._DesktopIP}:{Config.Core_RunConfig._DesktopPort}/api/system/get_system_resources");
+                systemResourceClass = await NetWork.Get.GetBodyAsync<SystemResourceClass>(
+                    $"{Config.Core_RunConfig._DesktopIP}:{Config.Core_RunConfig._DesktopPort}/api/system/get_system_resources");
             }
             else
             {
                 systemResourceClass = Core.Tools.SystemResource.Overview.GetOverview();
             }
 
-
-            
             if (systemResourceClass != null)
             {
                 int memory = (int)((double)(1 - ((double)systemResourceClass.Memory.Available / (double)systemResourceClass.Memory.Total)) * 100);
@@ -295,15 +281,14 @@ public partial class DefaultPage
         }
         catch (Exception ex)
         {
-            Log.Warn(nameof(UpdateHardwareResourceUtilizationRate), "更新硬件资源使用率出现错误，错误堆栈已写文本记录文件", ex, false);
+            Log.Warn(nameof(UpdateHardwareResourceUtilizationRateAsync), "更新硬件资源使用率出现错误", ex, false);
         }
     }
 
     /// <summary>
     /// 更新运行时间统计
     /// </summary>
-    /// <param name="state"></param>
-    public static void UpdateRuntimeStatistics(object state)
+    public static void UpdateRuntimeStatistics()
     {
         try
         {
@@ -317,7 +302,7 @@ public partial class DefaultPage
         }
         catch (Exception ex)
         {
-            Log.Warn(nameof(UpdateRuntimeStatistics), "更新公告出现错误，错误堆栈已写文本记录文件", ex, false);
+            Log.Warn(nameof(UpdateRuntimeStatistics), "更新运行时间出现错误", ex, false);
         }
     }
 

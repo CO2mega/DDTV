@@ -36,7 +36,7 @@ namespace Server.WebAppServices.Api
         public ActionResult Post([FromForm] List<long> uid, [FromForm] bool state, PostCommonParameters commonParameters)
         {
             List<long> count = Core.RuntimeObject._Room.ModifyRecordingSettings(uid, state);
-            return Content(MessageBase.MssagePack(nameof(modify_recording_settings), count, $"返回列表中的房间的自动录制修改为{state}"), "application/json");
+            return Content(MessageBase.MessagePack(nameof(modify_recording_settings), count, $"返回列表中的房间的自动录制修改为{state}"), "application/json");
         }
     }
 
@@ -61,7 +61,7 @@ namespace Server.WebAppServices.Api
         public ActionResult Post([FromForm] List<long> uid, [FromForm] bool state, PostCommonParameters commonParameters)
         {
             List<long> count = Core.RuntimeObject._Room.ModifyRoomPromptSettings(uid, state);
-            return Content(MessageBase.MssagePack(nameof(modify_room_prompt_settings), count, $"返回列表中的房间的开播提示修改为{state}"), "application/json");
+            return Content(MessageBase.MessagePack(nameof(modify_room_prompt_settings), count, $"返回列表中的房间的开播提示修改为{state}"), "application/json");
         }
     }
 
@@ -86,7 +86,7 @@ namespace Server.WebAppServices.Api
         public ActionResult Post([FromForm] List<long> uid, [FromForm] bool state, PostCommonParameters commonParameters)
         {
             List<long> count = Core.RuntimeObject._Room.ModifyRoomDmSettings(uid, state);
-            return Content(MessageBase.MssagePack(nameof(modify_room_dm_settings), count, $"返回列表中房间的弹幕录制修改为{state}"), "application/json");
+            return Content(MessageBase.MessagePack(nameof(modify_room_dm_settings), count, $"返回列表中房间的弹幕录制修改为{state}"), "application/json");
         }
     }
 
@@ -112,7 +112,7 @@ namespace Server.WebAppServices.Api
         public ActionResult Post(PostCommonParameters commonParameters, [FromForm] bool auto_rec, [FromForm] bool remind, [FromForm] bool rec_danmu, [FromForm] long uid = 0, [FromForm] long room_id = 0)
         {
             var TaskInfo = Core.RuntimeObject._Room.AddRoom(auto_rec, remind, rec_danmu, uid, room_id, false);
-            return Content(MessageBase.MssagePack(nameof(modify_room_prompt_settings), TaskInfo.State, $"{TaskInfo.Message}"), "application/json");
+            return Content(MessageBase.MessagePack(nameof(modify_room_prompt_settings), TaskInfo.State, $"{TaskInfo.Message}"), "application/json");
         }
     }
 
@@ -135,7 +135,7 @@ namespace Server.WebAppServices.Api
         [HttpPost(Name = "batch_add_room")]
         public ActionResult Post(PostCommonParameters commonParameters, [FromForm] string uids, [FromForm] bool auto_rec, [FromForm] bool remind, [FromForm] bool rec_danmu)
         {
-            return Content(MessageBase.MssagePack(nameof(batch_add_room), Core.RuntimeObject._Room.BatchAddRooms(uids,auto_rec, remind, rec_danmu)), "application/json");
+            return Content(MessageBase.MessagePack(nameof(batch_add_room), Core.RuntimeObject._Room.BatchAddRooms(uids,auto_rec, remind, rec_danmu)), "application/json");
         }
     }
 
@@ -155,7 +155,7 @@ namespace Server.WebAppServices.Api
         [HttpPost(Name = "batch_delete_rooms")]
         public ActionResult Post(PostCommonParameters commonParameters, [FromForm] string uids)
         {
-            return Content(MessageBase.MssagePack(nameof(batch_delete_rooms), Core.RuntimeObject._Room.BatchDeleteRooms(uids)), "application/json");
+            return Content(MessageBase.MessagePack(nameof(batch_delete_rooms), Core.RuntimeObject._Room.BatchDeleteRooms(uids)), "application/json");
         }
     }
 
@@ -178,7 +178,7 @@ namespace Server.WebAppServices.Api
         public ActionResult Post(PostCommonParameters commonParameters, [FromForm] long uid = 0, [FromForm] long room_id = 0)
         {
             var TaskInfo = Core.RuntimeObject._Room.DelRoom(uid, room_id,true);
-            return Content(MessageBase.MssagePack(nameof(del_room), TaskInfo.State, $"{TaskInfo.Message}"), "application/json");
+            return Content(MessageBase.MessagePack(nameof(del_room), TaskInfo.State, $"{TaskInfo.Message}"), "application/json");
         }
     }
     /// <summary>
@@ -204,7 +204,7 @@ namespace Server.WebAppServices.Api
         public ActionResult Post([FromForm] long uid, [FromForm] bool AutoRec, [FromForm] bool Remind, [FromForm] bool RecDanmu, PostCommonParameters commonParameters)
         {
             bool state = Core.RuntimeObject._Room.ModifyRoomSettings(uid, AutoRec, Remind, RecDanmu);
-            return Content(MessageBase.MssagePack(nameof(modify_room_settings), state, $"修改房间设置" + (state ? "成功" : "失败")), "application/json");
+            return Content(MessageBase.MessagePack(nameof(modify_room_settings), state, $"修改房间设置" + (state ? "成功" : "失败")), "application/json");
         }
     }
 }

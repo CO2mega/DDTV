@@ -98,7 +98,7 @@ namespace Desktop
 				bool shouldExit = await mainWindow.ShowExitConfirmationAsync();
 				if (shouldExit)
 				{
-					Environment.Exit(-114514);
+					Environment.Exit(Core.Init.ExitCodes.FatalError);
 				}
 			}
 		}

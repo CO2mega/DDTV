@@ -29,7 +29,7 @@ namespace Server.WebAppServices.Api
         public ActionResult Post(PostCommonParameters commonParameters, [FromForm] long uid = 0, [FromForm] long room_id = 0)
         {
             var TaskInfo = Core.RuntimeObject._Room.CancelTask(uid, room_id);
-            return Content(MessageBase.MssagePack(nameof(cancel_task), TaskInfo.State, $"{TaskInfo.Message}"), "application/json");
+            return Content(MessageBase.MessagePack(nameof(cancel_task), TaskInfo.State, $"{TaskInfo.Message}"), "application/json");
         }
     }
 
@@ -51,7 +51,7 @@ namespace Server.WebAppServices.Api
         public ActionResult Post(PostCommonParameters commonParameters, [FromForm] long uid = 0, [FromForm] long room_id = 0)
         {
             var TaskInfo = Core.RuntimeObject._Room.AddTask(uid, room_id);
-            return Content(MessageBase.MssagePack(nameof(single_task), TaskInfo.State, $"{TaskInfo.Message}"), "application/json");
+            return Content(MessageBase.MessagePack(nameof(single_task), TaskInfo.State, $"{TaskInfo.Message}"), "application/json");
         }
     }
 
@@ -73,7 +73,7 @@ namespace Server.WebAppServices.Api
         public ActionResult Post(PostCommonParameters commonParameters, [FromForm] long uid = 0, [FromForm] long room_id = 0)
         {
             var TaskInfo = Core.RuntimeObject._Room.CutTask(uid, room_id);
-            return Content(MessageBase.MssagePack(nameof(cut_task), TaskInfo.State, $"{TaskInfo.Message}"), "application/json");
+            return Content(MessageBase.MessagePack(nameof(cut_task), TaskInfo.State, $"{TaskInfo.Message}"), "application/json");
         }
     }
 
@@ -94,7 +94,7 @@ namespace Server.WebAppServices.Api
         public ActionResult Post(PostCommonParameters commonParameters, [FromForm] long uid = 0)
         {
             var message = Core.RuntimeObject.Download.Snapshot.CreateRecordingSnapshot(uid);
-            return Content(MessageBase.MssagePack(nameof(generate_snapshot),message,message.state?"创建快照成功":"创建快照失败", message.state?MessageCode.code.ok:MessageCode.code.OperationFailed), "application/json");
+            return Content(MessageBase.MessagePack(nameof(generate_snapshot),message,message.state?"创建快照成功":"创建快照失败", message.state?MessageCode.code.ok:MessageCode.code.OperationFailed), "application/json");
         }
     }
 }

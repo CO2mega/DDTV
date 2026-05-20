@@ -288,7 +288,7 @@ namespace Core.RuntimeObject
         /// </summary>
         /// <param name="UID"></param>
         /// <returns></returns>
-        public static bool GetCardFoRoomId(long RoomId, ref RoomCardClass roomCard)
+        public static bool GetCardForRoomId(long RoomId, ref RoomCardClass roomCard)
         {
             roomCard = roomInfos.FirstOrDefault(x => x.Value.RoomId == RoomId).Value;
             if (roomCard != null)
@@ -587,7 +587,7 @@ namespace Core.RuntimeObject
             long key = UID != 0 ? UID : RoomId;
             if (key != 0)
             {
-                if ((UID != 0 && GetCardForUID(UID, ref roomCard)) || (RoomId != 0 && GetCardFoRoomId(RoomId, ref roomCard)))
+                if ((UID != 0 && GetCardForUID(UID, ref roomCard)) || (RoomId != 0 && GetCardForRoomId(RoomId, ref roomCard)))
                 {
                     State = 2;
                     Message = $"添加房间失败，房间已存在,UID:{UID}";
@@ -648,7 +648,7 @@ namespace Core.RuntimeObject
             RoomCardClass roomCard = new();
             if (UID != 0 || RoomId != 0)
             {
-                if ((UID != 0 && GetCardForUID(UID, ref roomCard)) || (RoomId != 0 && GetCardFoRoomId(RoomId, ref roomCard)))
+                if ((UID != 0 && GetCardForUID(UID, ref roomCard)) || (RoomId != 0 && GetCardForRoomId(RoomId, ref roomCard)))
                 {
                     RoomCardClass roomCardClass = new();
                     if (roomInfos.TryRemove(roomCard.UID, out roomCardClass))
@@ -690,7 +690,7 @@ namespace Core.RuntimeObject
             string Message = "传入参数有误";
             if (UID != 0 || RoomId != 0)
             {
-                if (UID != 0 ? GetCardForUID(UID, ref roomCardClass) : GetCardFoRoomId(RoomId, ref roomCardClass))
+                if (UID != 0 ? GetCardForUID(UID, ref roomCardClass) : GetCardForRoomId(RoomId, ref roomCardClass))
                 {
                     //如果有录制中的任务，取消当前任务，并且取消可能存在的预约直播
                     if (roomCardClass.DownInfo.IsDownload)
@@ -745,7 +745,7 @@ namespace Core.RuntimeObject
             string Message = "传入参数有误";
             if (UID != 0 || RoomId != 0)
             {
-                if (UID != 0 ? GetCardForUID(UID, ref roomCardClass) : GetCardFoRoomId(RoomId, ref roomCardClass))
+                if (UID != 0 ? GetCardForUID(UID, ref roomCardClass) : GetCardForRoomId(RoomId, ref roomCardClass))
                 {
                     if (roomCardClass.DownInfo.IsDownload)
                     {
@@ -780,7 +780,7 @@ namespace Core.RuntimeObject
 
             if (UID != 0 || RoomId != 0)
             {
-                if (UID != 0 ? GetCardForUID(UID, ref roomCardClass) : GetCardFoRoomId(RoomId, ref roomCardClass))
+                if (UID != 0 ? GetCardForUID(UID, ref roomCardClass) : GetCardForRoomId(RoomId, ref roomCardClass))
                 {
                     if (!roomCardClass.DownInfo.IsDownload)
                     {
@@ -1079,7 +1079,7 @@ namespace Core.RuntimeObject
         private static long _GetUid(long RoomId)
         {
             RoomCardClass roomCard = new();
-            if (!_Room.GetCardFoRoomId(RoomId, ref roomCard))
+            if (!_Room.GetCardForRoomId(RoomId, ref roomCard))
             {
                 roomCard = ToRoomCard(GetRoomInfo(RoomId), roomCard);
                 if (roomCard == null)

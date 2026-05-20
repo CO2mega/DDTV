@@ -83,13 +83,10 @@
             VirtualizingPanel.CacheLengthUnit="Item"
             ScrollViewer.CanContentScroll="True"
             VirtualizingPanel.ScrollUnit="Pixel"
-            VirtualizingPanel.VirtualizationMode="Recycling"
-            ItemsSource="{Binding CardsCollection}">
+            VirtualizingPanel.VirtualizationMode="Recycling">
             <ui:VirtualizingItemsControl.ItemTemplate>
                 <DataTemplate>
-                    <local:CardControl>
-
-                    </local:CardControl>
+                    <local:CardControl />
                 </DataTemplate>
             </ui:VirtualizingItemsControl.ItemTemplate>
         </ui:VirtualizingItemsControl>

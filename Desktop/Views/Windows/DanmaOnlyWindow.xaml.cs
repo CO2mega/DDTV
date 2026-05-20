@@ -124,7 +124,7 @@ namespace Desktop.Views.Windows
                             if (messageEventArgs.Command == "Reconnect")
                             {
                                 RoomCardClass roomCardClass = new();
-                                _Room.GetCardFoRoomId(liveChatListener.RoomId, ref roomCardClass);
+                                _Room.GetCardForRoomId(liveChatListener.RoomId, ref roomCardClass);
                                 Core.RuntimeObject.Danmu.ReconnectRoomDanmaObjects(roomCardClass);
                             }
                             break;

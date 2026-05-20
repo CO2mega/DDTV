@@ -1,24 +1,28 @@
 ﻿using Core.LogModule;
 using Core.RuntimeObject;
-using SixLabors.ImageSharp.Drawing;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Formats.Tar;
 using System.Linq;
 using System.Net;
-using System.Runtime.ConstrainedExecution;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
 using static Core.Config;
 using static Core.Tools.ProgramUpdates;
-using static System.Net.Mime.MediaTypeNames;
 
 namespace Core
 {
     public class Init
     {
+        /// <summary>
+        /// 程序退出码常量
+        /// </summary>
+        public static class ExitCodes
+        {
+            public const int Normal = 0;
+            public const int FatalError = -114514;
+        }
 
         //Core服务启动完成事件
         public static event EventHandler<EventArgs> CoreStartCompletEvent;
@@ -66,6 +70,8 @@ namespace Core
             Thread.Sleep(100);
             //初始化日志系统
             Log.LogInit();
+            //初始化配置系统（读取配置文件、加载房间配置、启动自动保存）
+            Config.Initialize();
             //初始化邮件事件系统
             SMTP.Init();
             Log.Info(nameof(Init), $"初始化工作路径为:{Environment.CurrentDirectory}");
@@ -204,9 +210,9 @@ namespace Core
         /// </summary>
         private static void DeleteUnexpectedFiles()
         {
-            if (File.Exists($"{Core_RunConfig._ConfigDirectory}{Core_RunConfig._UserInfoCoinfFileExtension}"))
+            if (File.Exists(Path.Combine(Core_RunConfig._ConfigDirectory, Core_RunConfig._UserInfoCoinfFileExtension)))
             {
-                Tools.FileOperations.Delete($"{Core_RunConfig._ConfigDirectory}{Core_RunConfig._UserInfoCoinfFileExtension}", "发现空白登录态文件可能导致错误，已清理");
+                Tools.FileOperations.Delete(Path.Combine(Core_RunConfig._ConfigDirectory, Core_RunConfig._UserInfoCoinfFileExtension), "发现空白登录态文件可能导致错误，已清理");
             }
             Tools.FileOperations.DeleteEmptyDirectories(Core.Config.Core_RunConfig._TemporaryFileDirectory);
         }

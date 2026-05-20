@@ -1,5 +1,4 @@
-﻿using Amazon.Runtime.Internal.Transform;
-using Core.LogModule;
+﻿using Core.LogModule;
 using Core.RuntimeObject;
 using Core.Tools;
 using System.ComponentModel;
@@ -19,13 +18,25 @@ namespace Core
         #region Private Properties
 
         private static Dictionary<string, FieldInfo> varMap = new Dictionary<string, FieldInfo>();
+        private static bool _isInitialized = false;
+        private static CancellationTokenSource? _autoSaveCts;
+
+        #region Parse Helpers
+        private static bool ParseBool(string value, bool defaultValue = false) =>
+            bool.TryParse(value, out var result) ? result : defaultValue;
+        private static int ParseInt(string value, int defaultValue = 0) =>
+            int.TryParse(value, out var result) ? result : defaultValue;
+        private static long ParseLong(string value, long defaultValue = 0) =>
+            long.TryParse(value, out var result) ? result : defaultValue;
+        private static double ParseDouble(string value, double defaultValue = 0) =>
+            double.TryParse(value, out var result) ? result : defaultValue;
+        #endregion
 
         /// <summary>
         /// 构造函数，将这个类下的private参数给生成字典用于配置文件的读写
         /// </summary>
         static Config()
         {
-
             var _Config = new List<FieldInfo>();
             _Config.AddRange(typeof(Config.RunConfig).GetFields(BindingFlags.NonPublic | BindingFlags.Static).Where(field => !field.IsAssembly));
 
@@ -33,7 +44,7 @@ namespace Core
                 foreach (var fieldInfo in _Config)
                 {
                     varMap.Add(fieldInfo.Name, fieldInfo);
-                    if (!fieldInfo.Name.ToLower().Contains("Access"))
+                    if (!fieldInfo.Name.ToLower().Contains("access"))
                     {
 #if DEBUG
                         string ConfigText = $"从配置文件获取参数初始化：{fieldInfo.Name}={fieldInfo.GetValue(null)}";
@@ -41,46 +52,71 @@ namespace Core
 #endif
                     }
                 }
+        }
+
+        /// <summary>
+        /// 初始化配置系统：读取配置文件、加载房间配置、启动自动保存任务
+        /// 必须在程序启动时显式调用一次
+        /// </summary>
+        public static void Initialize()
+        {
+            if (_isInitialized)
+                return;
+
+            _isInitialized = true;
             Thread.Sleep(500);
             ReadConfiguration();
             RoomConfig.LoadRoomConfigurationFile();
+            StartAutoSaveTasks();
+        }
 
-            bool isFirstRun = true;
+        /// <summary>
+        /// 启动配置自动保存后台任务
+        /// </summary>
+        private static void StartAutoSaveTasks()
+        {
+            _autoSaveCts = new CancellationTokenSource();
+            var token = _autoSaveCts.Token;
 
-            if (isFirstRun)
+            Task.Run(async () =>
             {
-                isFirstRun = false;
-                Task.Run(() =>
+                while (!token.IsCancellationRequested)
                 {
-                    while (true)
+                    try
                     {
-                        try
-                        {
-                            RoomConfig.SaveRoomConfigurationFile();
-                        }
-                        catch (Exception e)
-                        {
-                            Log.Error(nameof(RoomConfig.SaveRoomConfigurationFile), $"将房间配置写入配置文件时出错", e, false);
-                        }
-                        Thread.Sleep(1000 * 3);
+                        RoomConfig.SaveRoomConfigurationFile();
                     }
-                });
-                Task.Run(() =>
+                    catch (Exception e)
+                    {
+                        Log.Error(nameof(RoomConfig.SaveRoomConfigurationFile), $"将房间配置写入配置文件时出错", e, false);
+                    }
+                    try { await Task.Delay(1000 * 3, token); } catch (TaskCanceledException) { break; }
+                }
+            }, token);
+
+            Task.Run(async () =>
+            {
+                while (!token.IsCancellationRequested)
                 {
-                    while (true)
+                    try
                     {
-                        try
-                        {
-                            WriteConfiguration();
-                        }
-                        catch (Exception e)
-                        {
-                            Log.Error(nameof(WriteConfiguration), $"将本地配置写入配置文件时出错", e, false);
-                        }
-                        Thread.Sleep(1000 * 3);
+                        WriteConfiguration();
                     }
-                });
-            }
+                    catch (Exception e)
+                    {
+                        Log.Error(nameof(WriteConfiguration), $"将本地配置写入配置文件时出错", e, false);
+                    }
+                    try { await Task.Delay(1000 * 3, token); } catch (TaskCanceledException) { break; }
+                }
+            }, token);
+        }
+
+        /// <summary>
+        /// 停止配置自动保存后台任务
+        /// </summary>
+        public static void StopAutoSaveTasks()
+        {
+            _autoSaveCts?.Cancel();
         }
         public static void ModifyConfig(object value, [System.Runtime.CompilerServices.CallerMemberName] string name = null)
         {
@@ -472,7 +508,7 @@ namespace Core
             /// </summary>
             public bool _AutomaticRepair
             {
-                get => bool.Parse(AutomaticRepair);
+                get => ParseBool(AutomaticRepair);
                 set
                 {
                     if (value.ToString() != AutomaticRepair)
@@ -511,7 +547,7 @@ namespace Core
             /// </summary>
             public bool _ForceMerge
             {
-                get => bool.Parse(ForceMerge);
+                get => ParseBool(ForceMerge);
                 set
                 {
                     if (value.ToString() != ForceMerge)
@@ -533,7 +569,7 @@ namespace Core
             /// </summary>
             public bool _UseAgree
             {
-                get => bool.Parse(UseAgree);
+                get => ParseBool(UseAgree);
                 set
                 {
                     if (value.ToString() != UseAgree)
@@ -824,7 +860,7 @@ namespace Core
             /// </summary>
             public int _HlsWaitingTime
             {
-                get => int.Parse(HlsWaitingTime);
+                get => ParseInt(HlsWaitingTime);
                 set
                 {
                     if (value.ToString() != HlsWaitingTime)
@@ -843,7 +879,7 @@ namespace Core
             /// </summary>
             public int _DetectIntervalTime
             {
-                get => int.Parse(DetectIntervalTime);
+                get => ParseInt(DetectIntervalTime);
                 set
                 {
                     if (value.ToString() != DetectIntervalTime)
@@ -864,7 +900,7 @@ namespace Core
             {
                 get
                 {
-                    return bool.Parse(DebugMode);
+                    return ParseBool(DebugMode);
                 }
                 set
                 {
@@ -900,7 +936,7 @@ namespace Core
                 }
                 set
                 {
-                    if ((int)value != int.Parse(RecordingMode))
+                    if ((int)value != ParseInt(RecordingMode))
                     {
                         RecordingMode = ((int)value).ToString();
                     }
@@ -923,7 +959,7 @@ namespace Core
             {
                 get
                 {
-                    return bool.Parse(DeleteOriginalFileAfterRepair);
+                    return ParseBool(DeleteOriginalFileAfterRepair);
                 }
                 set
                 {
@@ -943,7 +979,7 @@ namespace Core
             /// </summary>
             public int _DefaultResolution
             {
-                get => int.Parse(DefaultResolution);
+                get => ParseInt(DefaultResolution);
                 set
                 {
                     if (value.ToString() != DefaultResolution)
@@ -1019,7 +1055,7 @@ namespace Core
             /// </summary>
             public int _DefaultPlayResolution
             {
-                get => int.Parse(DefaultPlayResolution);
+                get => ParseInt(DefaultPlayResolution);
                 set
                 {
                     if (value.ToString() != DefaultPlayResolution)
@@ -1097,7 +1133,7 @@ namespace Core
             /// </summary>
             public int _Port
             {
-                get => int.Parse(Port);
+                get => ParseInt(Port);
                 set
                 {
                     if (value.ToString() != Port)
@@ -1246,7 +1282,7 @@ namespace Core
             {
                 get
                 {
-                    return bool.Parse(DesktopRemoteServer);
+                    return ParseBool(DesktopRemoteServer);
                 }
                 set
                 {
@@ -1269,7 +1305,7 @@ namespace Core
                 get
                 {
                     if (_DesktopRemoteServer)
-                        return int.Parse(DesktopPort);
+                        return ParseInt(DesktopPort);
                     else
                         return Core_RunConfig._Port;
                 }
@@ -1383,7 +1419,7 @@ namespace Core
             /// </summary>
             public int _ZoomOutMode
             {
-                get => int.Parse(ZoomOutMode);
+                get => ParseInt(ZoomOutMode);
                 set
                 {
                     if (value.ToString() != ZoomOutMode)
@@ -1404,7 +1440,7 @@ namespace Core
             {
                 get
                 {
-                    return bool.Parse(SystemCardReminder);
+                    return ParseBool(SystemCardReminder);
                 }
                 set
                 {
@@ -1426,7 +1462,7 @@ namespace Core
             {
                 get
                 {
-                    return bool.Parse(DevelopmentVersion);
+                    return ParseBool(DevelopmentVersion);
                 }
                 set
                 {
@@ -1447,7 +1483,7 @@ namespace Core
             /// </summary>
             public long _CutAccordingToSize
             {
-                get => long.Parse(CutAccordingToSize);
+                get => ParseLong(CutAccordingToSize);
                 set
                 {
                     if (value.ToString() != CutAccordingToSize)
@@ -1517,7 +1553,7 @@ namespace Core
             /// </summary>
             public long _CutAccordingToTime
             {
-                get => long.Parse(CutAccordingToTime);
+                get => ParseLong(CutAccordingToTime);
                 set
                 {
                     if (value.ToString() != CutAccordingToTime)
@@ -1588,7 +1624,7 @@ namespace Core
             {
                 get
                 {
-                    return int.Parse(DesktopWidth);
+                    return ParseInt(DesktopWidth);
                 }
                 set
                 {
@@ -1610,7 +1646,7 @@ namespace Core
             {
                 get
                 {
-                    return int.Parse(DesktopHeight);
+                    return ParseInt(DesktopHeight);
                 }
                 set
                 {
@@ -1633,7 +1669,7 @@ namespace Core
             {
                 get
                 {
-                    return bool.Parse(WebHookSwitch);
+                    return ParseBool(WebHookSwitch);
                 }
                 set
                 {
@@ -1720,7 +1756,7 @@ namespace Core
             {
                 get
                 {
-                    return int.Parse(PlayWindowSubtitleFontSize);
+                    return ParseInt(PlayWindowSubtitleFontSize);
                 }
                 set
                 {
@@ -1742,7 +1778,7 @@ namespace Core
             {
                 get
                 {
-                    return int.Parse(PlayWindowDanmaFontSize);
+                    return ParseInt(PlayWindowDanmaFontSize);
                 }
                 set
                 {
@@ -1764,7 +1800,7 @@ namespace Core
             {
                 get
                 {
-                    return double.Parse(PlayWindowDanMuFontOpacity);
+                    return ParseDouble(PlayWindowDanMuFontOpacity);
                 }
                 set
                 {
@@ -1786,7 +1822,7 @@ namespace Core
             {
                 get
                 {
-                    return int.Parse(PlayWindowDanmaSpeed);
+                    return ParseInt(PlayWindowDanmaSpeed);
                 }
                 set
                 {
@@ -1808,7 +1844,7 @@ namespace Core
             {
                 get
                 {
-                    return bool.Parse(PlayDanmaSpeed_Dynamically);
+                    return ParseBool(PlayDanmaSpeed_Dynamically);
                 }
                 set
                 {
@@ -1830,7 +1866,7 @@ namespace Core
             {
                 get
                 {
-                    return bool.Parse(PlayWindowDanmaSwitch);
+                    return ParseBool(PlayWindowDanmaSwitch);
                 }
                 set
                 {
@@ -1852,7 +1888,7 @@ namespace Core
             {
                 get
                 {
-                    return bool.Parse(Linux_Only_ShellSwitch);
+                    return ParseBool(Linux_Only_ShellSwitch);
                 }
                 set
                 {
@@ -1896,7 +1932,7 @@ namespace Core
             {
                 get
                 {
-                    return bool.Parse(SaveCover);
+                    return ParseBool(SaveCover);
                 }
                 set
                 {
@@ -1916,7 +1952,7 @@ namespace Core
             /// </summary>
             public long _AutomaticFileCleaningThreshold
             {
-                get => long.Parse(AutomaticFileCleaningThreshold);
+                get => ParseLong(AutomaticFileCleaningThreshold);
                 set
                 {
                     if (value.ToString() != AutomaticFileCleaningThreshold)
@@ -1981,7 +2017,7 @@ namespace Core
             {
                 get
                 {
-                    return bool.Parse(PreventWindowsHibernation);
+                    return ParseBool(PreventWindowsHibernation);
                 }
                 set
                 {
@@ -2003,7 +2039,7 @@ namespace Core
             {
                 get
                 {
-                    return bool.Parse(ReconnectAnchorReStream);
+                    return ParseBool(ReconnectAnchorReStream);
                 }
                 set
                 {
@@ -2026,7 +2062,7 @@ namespace Core
             {
                 get
                 {
-                    return bool.Parse("false");
+                    return ParseBool("false");
                 }
                 set
                 {
@@ -2048,7 +2084,7 @@ namespace Core
             {
                 get
                 {
-                    return int.Parse(MaximumLengthDanmu);
+                    return ParseInt(MaximumLengthDanmu);
                 }
                 set
                 {
@@ -2071,7 +2107,7 @@ namespace Core
             {
                 get
                 {
-                    return bool.Parse(CompatibilityModeDefaultsToOpeningPopupWindow);
+                    return ParseBool(CompatibilityModeDefaultsToOpeningPopupWindow);
                 }
                 set
                 {
@@ -2093,7 +2129,7 @@ namespace Core
             {
                 get
                 {
-                    return bool.Parse(EnableSwagger);
+                    return ParseBool(EnableSwagger);
                 }
                 set
                 {
@@ -2115,7 +2151,7 @@ namespace Core
             {
                 get
                 {
-                    return double.Parse(TranscodeFileDifference);
+                    return ParseDouble(TranscodeFileDifference);
                 }
                 set
                 {
@@ -2137,7 +2173,7 @@ namespace Core
             {
                 get
                 {
-                    return bool.Parse(EnableWebServer);
+                    return ParseBool(EnableWebServer);
                 }
                 set
                 {
@@ -2160,7 +2196,7 @@ namespace Core
             {
                 get
                 {
-                    return bool.Parse(Email_EnableSmtp);
+                    return ParseBool(Email_EnableSmtp);
                 }
                 set
                 {
@@ -2349,7 +2385,7 @@ namespace Core
             {
                 get
                 {
-                    return bool.Parse(Email_LoginFailureReminder_Enable);
+                    return ParseBool(Email_LoginFailureReminder_Enable);
                 }
                 set
                 {
@@ -2371,7 +2407,7 @@ namespace Core
             {
                 get
                 {
-                    return bool.Parse(Email_StartLive_Enable);
+                    return ParseBool(Email_StartLive_Enable);
                 }
                 set
                 {
@@ -2393,7 +2429,7 @@ namespace Core
             {
                 get
                 {
-                    return bool.Parse(Email_RecEnd_Enable);
+                    return ParseBool(Email_RecEnd_Enable);
                 }
                 set
                 {
@@ -2415,7 +2451,7 @@ namespace Core
             {
                 get
                 {
-                    return bool.Parse(Email_TranscodingFail_Enable);
+                    return ParseBool(Email_TranscodingFail_Enable);
                 }
                 set
                 {
@@ -2437,7 +2473,7 @@ namespace Core
             {
                 get
                 {
-                    return bool.Parse(CompatibilityWindowTop);
+                    return ParseBool(CompatibilityWindowTop);
                 }
                 set
                 {
@@ -2459,7 +2495,7 @@ namespace Core
             {
                 get
                 {
-                    return bool.Parse(DetectErroneousFilesFixThem);
+                    return ParseBool(DetectErroneousFilesFixThem);
                 }
                 set
                 {
@@ -2479,7 +2515,7 @@ namespace Core
             /// </summary>
             public long _DurationLogStorage
             {
-                get => long.Parse(DurationLogStorage);
+                get => ParseLong(DurationLogStorage);
                 set
                 {
                     if (value.ToString() != DurationLogStorage)

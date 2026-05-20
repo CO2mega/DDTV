@@ -3,7 +3,6 @@ using ConsoleTableExt;
 using Core.LiveChat;
 using Core.LogModule;
 using Core.Network.Methods;
-using SQLitePCL;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -42,16 +41,16 @@ namespace Core.RuntimeObject.Download
             }
 
 
-            (DlwnloadTaskState TaskState, string FileName) result = new();
+            (DownloadTaskState TaskState, string FileName) result = new();
             switch (Config.Core_RunConfig._RecordingMode)
             {
                 case RecordingMode.HLS_Only:
                     result = await HLS.DlwnloadHls_avc_mp4(roomCard, Reconnection);
-                    Log.Info(nameof(DetectRoom_LiveStart), $"{roomCard.Name}({roomCard.RoomId})HLS录制进程中断，状态:{Enum.GetName(typeof(DlwnloadTaskState), result.TaskState)}");
+                    Log.Info(nameof(DetectRoom_LiveStart), $"{roomCard.Name}({roomCard.RoomId})HLS录制进程中断，状态:{Enum.GetName(typeof(DownloadTaskState), result.TaskState)}");
                     break;
                 case RecordingMode.FLV_Only:
                     result = await FLV.DlwnloadHls_avc_flv(roomCard);
-                    if (result.TaskState == DlwnloadTaskState.SuccessfulButNotStream)
+                    if (result.TaskState == DownloadTaskState.SuccessfulButNotStream)
                     {
                         //落到FLV都还没流，应该是下播了但是没关直播间，这里手动等15秒再检测，不然疯狂刷屏
                         Thread.Sleep(1000 * 15);
@@ -59,13 +58,13 @@ namespace Core.RuntimeObject.Download
                     break;
                 case RecordingMode.Auto:
                     result = await HLS.DlwnloadHls_avc_mp4(roomCard, Reconnection);
-                    Log.Info(nameof(DetectRoom_LiveStart), $"{roomCard.Name}({roomCard.RoomId})HLS录制进程中断，状态:{Enum.GetName(typeof(DlwnloadTaskState), result.TaskState)}");
-                    if (result.TaskState == DlwnloadTaskState.NoHLSStreamExists)
+                    Log.Info(nameof(DetectRoom_LiveStart), $"{roomCard.Name}({roomCard.RoomId})HLS录制进程中断，状态:{Enum.GetName(typeof(DownloadTaskState), result.TaskState)}");
+                    if (result.TaskState == DownloadTaskState.NoHLSStreamExists)
                     {
                         Log.Info(nameof(DetectRoom_LiveStart), $"{roomCard.Name}({roomCard.RoomId})降级到FLV模式进行录制");
                         //FLV兜底逻辑
                         result = await FLV.DlwnloadHls_avc_flv(roomCard);
-                        if (result.TaskState == DlwnloadTaskState.SuccessfulButNotStream)
+                        if (result.TaskState == DownloadTaskState.SuccessfulButNotStream)
                         {
                             //落到FLV都还没流，应该是下播了但是没关直播间，这里手动等15秒再检测，不然疯狂刷屏
                             Thread.Sleep(1000 * 15);
@@ -77,22 +76,22 @@ namespace Core.RuntimeObject.Download
             if (roomCard.IsRecDanmu && roomCard.DownInfo.LiveChatListener != null)
             {
                 roomCard.DownInfo.LiveChatListener.File = result.FileName.Replace("_original.mp4", "").Replace("_original.flv", "");
-                Danmu.SevaDanmu(roomCard.DownInfo.LiveChatListener, result.TaskState == DlwnloadTaskState.SuccessfulButNotStream ? true : false, ref roomCard);
+                Danmu.SaveDanmu(roomCard.DownInfo.LiveChatListener, result.TaskState == DownloadTaskState.SuccessfulButNotStream ? true : false, ref roomCard);
             }
             //如果是付费直播，结束当前录制任务
-            if (result.TaskState == DlwnloadTaskState.PaidLiveStream)
+            if (result.TaskState == DownloadTaskState.PaidLiveStream)
             {
                 roomCard.DownInfo.Status = RoomCardClass.DownloadStatus.Special;
             }
             //如果完成，加入视频文件列表
-            if (result.TaskState == DlwnloadTaskState.Success)
+            if (result.TaskState == DownloadTaskState.Success)
             {
                 roomCard.DownInfo.DownloadFileList.VideoFile.Add(result.FileName);
             }
             if ((
-               result.TaskState == DlwnloadTaskState.Success ||
-               result.TaskState == DlwnloadTaskState.Cut ||
-               result.TaskState == DlwnloadTaskState.AnchorReStream
+               result.TaskState == DownloadTaskState.Success ||
+               result.TaskState == DownloadTaskState.Cut ||
+               result.TaskState == DownloadTaskState.AnchorReStream
                )&& Config.Core_RunConfig._AutomaticRepair)
             {
                 Tools.Transcode transcode = new Tools.Transcode();
@@ -309,15 +308,15 @@ namespace Core.RuntimeObject.Download
         /// <param name="card"></param>
         /// <param name="AnchorReStream">主播重新推流</param>
         /// <returns>是否成功</returns>
-        internal static DlwnloadTaskState CheckAndHandleFile(string File, ref RoomCardClass card, bool AnchorReStream = false)
+        internal static DownloadTaskState CheckAndHandleFile(string File, ref RoomCardClass card, bool AnchorReStream = false)
         {
             if (card.DownInfo.IsCut)
             {
-                return DlwnloadTaskState.Cut;
+                return DownloadTaskState.Cut;
             }
             if (AnchorReStream)
             {
-                return DlwnloadTaskState.AnchorReStream;
+                return DownloadTaskState.AnchorReStream;
             }
             else
             {
@@ -327,7 +326,7 @@ namespace Core.RuntimeObject.Download
                     System.IO.FileInfo fileInfo = new(File);
                     if (fileInfo.Length > Config.Core_RunConfig._AutomaticFileCleaningThreshold)
                     {
-                        return DlwnloadTaskState.Success;
+                        return DownloadTaskState.Success;
                     }
                     else
                     {
@@ -335,7 +334,7 @@ namespace Core.RuntimeObject.Download
                     }
 
                 }
-                return DlwnloadTaskState.SuccessfulButNotStream;
+                return DownloadTaskState.SuccessfulButNotStream;
             }
             //card.DownInfo.DownloadFileList.VideoFile.RemoveAt(card.DownInfo.DownloadFileList.VideoFile.Count - 1);
 
@@ -518,7 +517,7 @@ namespace Core.RuntimeObject.Download
                             if (messageEventArgs.Command == "Reconnect")
                             {
                                 RoomCardClass roomCardClass = new();
-                                _Room.GetCardFoRoomId(liveChatListener.RoomId, ref roomCardClass);
+                                _Room.GetCardForRoomId(liveChatListener.RoomId, ref roomCardClass);
                                 Core.RuntimeObject.Danmu.ReconnectRoomDanmaObjects(roomCardClass);
                             }
                             break;
@@ -617,7 +616,7 @@ namespace Core.RuntimeObject.Download
             }
         }
 
-        public enum DlwnloadTaskState
+        public enum DownloadTaskState
         {
             /// <summary>
             /// 初始状态(该状态不应该被传递出去，使用前必须状态已变化)

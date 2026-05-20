@@ -18,9 +18,9 @@ namespace Core.RuntimeObject.Download
         /// </summary>
         /// <param name="card">房间卡片信息</param>
         /// <returns>[TaskStatus]任务状态；[FileName]下载成功的文件名</returns>
-        public static async Task<(DlwnloadTaskState hlsState, string FileName)> DlwnloadHls_avc_flv(RoomCardClass card)
+        public static async Task<(DownloadTaskState hlsState, string FileName)> DlwnloadHls_avc_flv(RoomCardClass card)
         {
-            DlwnloadTaskState hlsState = DlwnloadTaskState.Default;
+            DownloadTaskState hlsState = DownloadTaskState.Default;
             string File = string.Empty;
             await Task.Run(async () =>
             {
@@ -71,28 +71,28 @@ namespace Core.RuntimeObject.Download
                     if (card.RoomCutAccordingToSize > 0 && DownloadFileSizeForThisTask > card.RoomCutAccordingToSize)
                     {
                         Log.Info(nameof(DlwnloadHls_avc_flv), $"{card.Name}({card.RoomId})触发房间文件大小分割");
-                        hlsState = DlwnloadTaskState.Success;
+                        hlsState = DownloadTaskState.Success;
                         downloader.CancelAsync();
                     }
 
                     if (card.RoomCutAccordingToSize == 0 && Config.Core_RunConfig._CutAccordingToSize > 0 && DownloadFileSizeForThisTask > Config.Core_RunConfig._CutAccordingToSize)
                     {
                         Log.Info(nameof(DlwnloadHls_avc_flv), $"{card.Name}({card.RoomId})触发全局文件大小分割");
-                        hlsState = DlwnloadTaskState.Success;
+                        hlsState = DownloadTaskState.Success;
                         downloader.CancelAsync();
                     }
                     //处理时间限制分割
                     if (card.RoomCutAccordingToTime > 0 && stopWatch.Elapsed.TotalSeconds > card.RoomCutAccordingToTime)
                     {
                         Log.Info(nameof(DlwnloadHls_avc_flv), $"{card.Name}({card.RoomId})触发房间时间分割");
-                        hlsState = DlwnloadTaskState.Success;
+                        hlsState = DownloadTaskState.Success;
                         downloader.CancelAsync();
                     }
 
                     if (card.RoomCutAccordingToTime == 0 && Config.Core_RunConfig._CutAccordingToTime > 0 && stopWatch.Elapsed.TotalSeconds > Config.Core_RunConfig._CutAccordingToTime)
                     {
                         Log.Info(nameof(DlwnloadHls_avc_flv), $"{card.Name}({card.RoomId})触发全局时间分割");
-                        hlsState = DlwnloadTaskState.Success;
+                        hlsState = DownloadTaskState.Success;
                         downloader.CancelAsync();
                     }
                 };

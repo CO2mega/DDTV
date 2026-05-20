@@ -24,7 +24,7 @@ namespace Server.WebAppServices
         /// <param name="message">提示文本消息</param>
         /// <param name="code">状态码</param>
         /// <returns></returns>
-        public static string MssagePack<T>(string cmd, T data, string message = "", code code = code.ok)
+        public static string MessagePack<T>(string cmd, T data, string message = "", code code = code.ok)
         {
             if (!Core.RuntimeObject.Account.AccountInformation.State)
             {

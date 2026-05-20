@@ -1,4 +1,4 @@
-﻿using Core.LogModule;
+using Core.LogModule;
 using Newtonsoft.Json;
 using System.Net.Http;
 
@@ -6,8 +6,15 @@ namespace Desktop.NetWork
 {
     public class Post
     {
-        static int PostErrorCount = 0;
-        static bool First = true;
+        private static readonly HttpClient _httpClient = new HttpClient();
+        private static int _postErrorCount = 0;
+        private static bool _firstError = true;
+
+        static Post()
+        {
+            _httpClient.Timeout = TimeSpan.FromSeconds(8);
+        }
+
         /// <summary>
         /// 同步POST方法
         /// </summary>
@@ -42,31 +49,32 @@ namespace Desktop.NetWork
                 string sig = Core.Tools.Encryption.SHA1_Encrypt(AuthenticationOriginalStr);
                 dic.Add("sig", sig);
                 dic.Remove("access_key_secret");
-                using (HttpClient client = new HttpClient())
-                {
-                    if (TimeoutPeriod == default(TimeSpan))
-                        client.Timeout = new TimeSpan(0, 0, 8); // 设置默认值为8秒
-                    else
-                        client.Timeout = TimeoutPeriod;
-                    var content = new FormUrlEncodedContent(dic);
-                    var response = await client.PostAsync(url, content);
-                    var responseString = response.Content.ReadAsStringAsync().Result;
-                    OperationQueue.pack<T> A = JsonConvert.DeserializeObject<OperationQueue.pack<T>>(responseString);
 
-                    return A.data;
+                var client = _httpClient;
+                if (TimeoutPeriod != default(TimeSpan))
+                {
+                    // 当需要自定义超时时，创建短期客户端
+                    client = new HttpClient { Timeout = TimeoutPeriod };
                 }
+
+                var content = new FormUrlEncodedContent(dic);
+                var response = await client.PostAsync(url, content);
+                var responseString = await response.Content.ReadAsStringAsync();
+                OperationQueue.pack<T> A = JsonConvert.DeserializeObject<OperationQueue.pack<T>>(responseString);
+
+                return A.data;
             }
             catch (Exception ex)
             {
-                PostErrorCount++;
-                if (PostErrorCount > 30)
+                _postErrorCount++;
+                if (_postErrorCount > 30)
                 {
-                    Log.Warn(nameof(PostBody), $"触发DesktopTips={PostErrorCount}");
-                    PostErrorCount = 0;
+                    Log.Warn(nameof(PostBody), $"触发DesktopTips={_postErrorCount}");
+                    _postErrorCount = 0;
                 }
-                if (First)
+                if (_firstError)
                 {
-                    First = false;
+                    _firstError = false;
                     Log.Warn(nameof(PostBody), $"发起Post请求出错({(Core.Config.Core_RunConfig._DesktopRemoteServer?"远程模式":"本地模式")}),URL:[{url}]，错误堆栈：\r\n{ex.ToString()}", ex);
                 }
                 else

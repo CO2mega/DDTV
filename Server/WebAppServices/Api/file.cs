@@ -30,11 +30,11 @@ namespace Server.WebAppServices.Api
             DirectoryNode Structure = new();
             if(Core.RuntimeObject.RecordingFiles.GetDirectoryStructure(Config.Core_RunConfig._RecFileDirectory, out Structure))
             {
-                return Content(MessageBase.MssagePack(nameof(get_file_structure), Structure, $"获取录制文件路径下的文件结构成功"), "application/json");
+                return Content(MessageBase.MessagePack(nameof(get_file_structure), Structure, $"获取录制文件路径下的文件结构成功"), "application/json");
             }
             else
             {
-                return Content(MessageBase.MssagePack(nameof(get_file_structure), false, $"目标路径不存在"), "application/json");
+                return Content(MessageBase.MessagePack(nameof(get_file_structure), false, $"目标路径不存在"), "application/json");
             }
         }
     }

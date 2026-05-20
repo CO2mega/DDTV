@@ -5,13 +5,10 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
-using System.Formats.Asn1;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using static Core.LogModule.LogClass;
-using static System.Net.Mime.MediaTypeNames;
-using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace Core.LogModule
 {
@@ -31,16 +28,20 @@ namespace Core.LogModule
         public static event EventHandler<EventArgs> LogAddEvent;
 
         public static List<LogClass> LogList = new List<LogClass>();
+        private static readonly object _logListLock = new object();
 
         private static ConsoleWriter console = new ConsoleWriter();
 
 
         private static void Log_LogAddEvent(object? sender, EventArgs e)
         {
-            LogList.Insert(0, (LogClass)sender);
-            while(LogList.Count>100)
+            lock (_logListLock)
             {
-                LogList.RemoveAt(LogList.Count - 1);
+                LogList.Insert(0, (LogClass)sender);
+                while(LogList.Count > 100)
+                {
+                    LogList.RemoveAt(LogList.Count - 1);
+                }
             }
         }
         /// <summary>
@@ -187,7 +188,10 @@ namespace Core.LogModule
                         if (logClass.Type <= LogLevel && logClass.Type != LogClass.LogType.Info_Transcod && logClass.IsDisplay && ( Config.Core_RunConfig._DebugMode || logClass.Type< LogType.Debug))
 #endif
                         {
-                            LogList.Add(logClass);
+                            lock (_logListLock)
+                            {
+                                LogList.Add(logClass);
+                            }
                             string _ = $"{logClass.Time}:[{Enum.GetName(typeof(LogClass.LogType), (int)logClass.Type)}][{logClass.Source}]{logClass.Message}";
                             console.Write($"{logClass.Time}:", ConsoleColor.White);
 

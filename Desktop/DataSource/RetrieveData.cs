@@ -1,16 +1,9 @@
-﻿using Core;
+using Core;
 using Core.LogModule;
 using Core.RuntimeObject;
 using Desktop.Models;
 using Desktop.Views.Pages;
 using System.Windows;
-using System.Windows.Media;
-using static System.Windows.Forms.AxHost;
-using static System.Windows.Forms.VisualStyles.VisualStyleElement;
-
-
-
-
 
 namespace Desktop.DataSource
 {
@@ -24,7 +17,6 @@ namespace Desktop.DataSource
                 {
                     return;
                 }
-
 
                 Core.RuntimeObject._Room.Overview.CardData Cards = new();
 
@@ -62,16 +54,14 @@ namespace Desktop.DataSource
                     }
                 }
 
-
-
                 if (Cards == null)
                 {
                     Log.Warn(nameof(RefreshRoomCards), "调用Core的API[batch_complete_room_information]获取房间信息失败，获取到的信息为Null", null, true);
                     return;
                 };
+
                 Application.Current.Dispatcher.Invoke(() =>
                 {
-
                     int pg = (Cards.total / 102) + (Cards.total % 102 > 0 ? 1 : 0);
                     if (DataPage.PageCount != pg)
                     {
@@ -95,11 +85,10 @@ namespace Desktop.DataSource
                         Views.Pages.DataPage.CardsCollection.Remove(Views.Pages.DataPage.CardsCollection.FirstOrDefault(i => i.Uid == item));
                     }
 
-
                     foreach (var item in Cards.completeInfoList)
                     {
                         var card = Views.Pages.DataPage.CardsCollection.FirstOrDefault(i => i.Uid == item.uid);
-                        if (card.Uid != 0)
+                        if (card != null && card.Uid != 0)
                         {
                             if (
                                 card.Title != item.roomInfo.title
@@ -111,7 +100,7 @@ namespace Desktop.DataSource
                                 || card.IsRemind != item.userInfo.isRemind
                                 || card.IsDownload != item.taskStatus.isDownload
                                 || card.DownloadSpe != item.taskStatus.downloadRate
-                                || card.LiveTime != TimeSpan.FromSeconds(new DateTimeOffset(DateTime.Now).ToUnixTimeSeconds() - item.roomInfo.liveTime).Seconds
+                                || card.LiveTime != (new DateTimeOffset(DateTime.Now).ToUnixTimeSeconds() - item.roomInfo.liveTime)
                                 )
                             {
                                 DataCard dataCard = CreateDataCard(item);
@@ -161,44 +150,29 @@ namespace Desktop.DataSource
                             }
                         }
                     }
-
                 });
             }
 
             private static DataCard CreateDataCard(Core.RuntimeObject._Room.Overview.CardData.CompleteInfo item)
             {
+                long liveSeconds = new DateTimeOffset(DateTime.Now).ToUnixTimeSeconds() - item.roomInfo.liveTime;
                 DataCard dataCard = new DataCard
                 {
                     Uid = item.uid,
                     Room_Id = item.roomId,
                     Title = item.roomInfo.title,
                     Nickname = item.userInfo.name,
-                    //Live_Status = item.roomInfo.liveStatus,
-                    //Live_Status_IsVisible = item.roomInfo.liveStatus ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed,
-                    //#00aeec
                     IsRec = item.userInfo.isAutoRec,
-                    RecSign = !item.userInfo.isAutoRec ? new SolidColorBrush((Color)ColorConverter.ConvertFromString("#777777")) : item.taskStatus.isDownload ? new SolidColorBrush((Color)ColorConverter.ConvertFromString("#fb7299")) : new SolidColorBrush((Color)ColorConverter.ConvertFromString("#00aeec")),
                     IsDanmu = item.userInfo.isRecDanmu,
-                    DanmuSign = !item.userInfo.isRecDanmu ? new SolidColorBrush((Color)ColorConverter.ConvertFromString("#777777")) : item.taskStatus.isDanma ? new SolidColorBrush((Color)ColorConverter.ConvertFromString("#fb7299")) : new SolidColorBrush((Color)ColorConverter.ConvertFromString("#00aeec")),
                     IsRemind = item.userInfo.isRemind,
-                    RemindSign = item.userInfo.isRemind ? new SolidColorBrush((Color)ColorConverter.ConvertFromString("#00aeec")) : new SolidColorBrush((Color)ColorConverter.ConvertFromString("#777777")),
-
-                    Rec_Status = item.taskStatus.isDownload,
-                    Rec_Status_IsVisible = item.taskStatus.isDownload ? Visibility.Visible : Visibility.Collapsed,
-
-                    Live_Status = !item.taskStatus.isDownload && item.roomInfo.liveStatus ? true : false,
-                    Live_Status_IsVisible = !item.taskStatus.isDownload && item.roomInfo.liveStatus ? Visibility.Visible : Visibility.Collapsed,
-
-                    Rest_Status = !item.roomInfo.liveStatus ? true : false,
-                    Rest_Status_IsVisible = (!item.roomInfo.liveStatus && !item.taskStatus.isDownload) ? Visibility.Visible : Visibility.Collapsed,
-
                     IsDownload = item.taskStatus.isDownload,
+                    Rec_Status = item.taskStatus.isDownload,
+                    Live_Status = item.roomInfo.liveStatus,
                     DownloadSpe = item.taskStatus.downloadRate,
                     DownloadSpe_str = item.taskStatus.isDownload ? Core.Tools.Linq.ConversionSize(item.taskStatus.downloadRate, Core.Tools.Linq.ConversionSizeType.BitRate) : "",
-                    LiveTime = TimeSpan.FromSeconds(new DateTimeOffset(DateTime.Now).ToUnixTimeSeconds() - item.roomInfo.liveTime).Seconds,
-                    LiveTime_str = item.roomInfo.liveStatus ? ("已直播 " + TimeSpan.FromSeconds(new DateTimeOffset(DateTime.Now).ToUnixTimeSeconds() - item.roomInfo.liveTime).ToString(@"hh\:mm\:ss")) : ""
+                    LiveTime = liveSeconds,
+                    LiveTime_str = item.roomInfo.liveStatus ? ("已直播 " + TimeSpan.FromSeconds(liveSeconds).ToString(@"hh\:mm\:ss")) : ""
                 };
-
                 return dataCard;
             }
         }
@@ -207,9 +181,6 @@ namespace Desktop.DataSource
         {
             public static void ModifyRoomSettings(long uid, bool IsAutoRec, bool IsRecDanmu, bool IsRemind)
             {
-
-
-
                 if (Core.Config.Core_RunConfig._DesktopRemoteServer || Core.Config.Core_RunConfig._LocalHTTPMode)
                 {
                     Dictionary<string, string> dic = new Dictionary<string, string>
@@ -223,11 +194,11 @@ namespace Desktop.DataSource
                     {
                         if (NetWork.Post.PostBody<bool>($"{Config.Core_RunConfig._DesktopIP}:{Config.Core_RunConfig._DesktopPort}/api/set_rooms/modify_room_settings", dic).Result)
                         {
-                            Log.Info(nameof(ModifyRoomSettings), "调用Core的API[batch_delete_rooms]修改房间配置成功");
+                            Log.Info(nameof(ModifyRoomSettings), "调用Core的API[modify_room_settings]修改房间配置成功");
                         }
                         else
                         {
-                            Log.Warn(nameof(ModifyRoomSettings), "调用Core的API[batch_delete_rooms]修改房间配置失败");
+                            Log.Warn(nameof(ModifyRoomSettings), "调用Core的API[modify_room_settings]修改房间配置失败");
                         }
                     });
                 }
@@ -237,15 +208,14 @@ namespace Desktop.DataSource
                     {
                         if (Core.RuntimeObject._Room.ModifyRoomSettings(uid, IsAutoRec, IsRemind, IsRecDanmu))
                         {
-                            Log.Info(nameof(ModifyRoomSettings), "调用Core的API[batch_delete_rooms]修改房间配置成功");
+                            Log.Info(nameof(ModifyRoomSettings), "调用Core的API[modify_room_settings]修改房间配置成功");
                         }
                         else
                         {
-                            Log.Warn(nameof(ModifyRoomSettings), "调用Core的API[batch_delete_rooms]修改房间配置失败");
+                            Log.Warn(nameof(ModifyRoomSettings), "调用Core的API[modify_room_settings]修改房间配置失败");
                         }
                     });
                 }
-
             }
         }
     }

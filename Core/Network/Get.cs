@@ -134,13 +134,17 @@ namespace Core.Network
                                 request.Headers.TryAddWithoutValidation("Cookie", str);
                             }
 
-                            // 发送请求（同步风格以保证与原方法为同步）
-                            using (HttpResponseMessage response = _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cts.Token).GetAwaiter().GetResult())
+                            // 发送请求（使用同步 API 避免 async-over-sync 死锁风险）
+                            using (HttpResponseMessage response = _httpClient.Send(request, HttpCompletionOption.ResponseHeadersRead, cts.Token))
                             {
                                 response.EnsureSuccessStatusCode();
 
                                 // 读取响应体（同步风格）
-                                result = response.Content.ReadAsStringAsync(cts.Token).GetAwaiter().GetResult();
+                                using (var stream = response.Content.ReadAsStream())
+                                using (var reader = new System.IO.StreamReader(stream, Encoding.UTF8))
+                                {
+                                    result = reader.ReadToEnd();
+                                }
 
                                 if (!string.IsNullOrEmpty(result))
                                 {

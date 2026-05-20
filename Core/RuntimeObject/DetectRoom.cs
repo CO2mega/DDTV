@@ -173,9 +173,9 @@ namespace Core.RuntimeObject
                     }
                 }
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                ;
+                Log.Error(nameof(DetectRoom_LiveStart), $"开播事件处理发生未预料的错误", ex);
             }
         }
 

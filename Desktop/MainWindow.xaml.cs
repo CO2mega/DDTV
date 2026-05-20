@@ -1,4 +1,4 @@
-﻿using Core;
+using Core;
 using Core.Account;
 using Core.LogModule;
 using Core.RuntimeObject;
@@ -16,7 +16,6 @@ using Wpf.Ui;
 using Wpf.Ui.Controls;
 using static Core.RuntimeObject.Detect;
 using static Core.Tools.DokiDoki;
-using static System.Windows.Forms.VisualStyles.VisualStyleElement;
 
 namespace Desktop
 {
@@ -25,15 +24,10 @@ namespace Desktop
     /// </summary>
     public partial class MainWindow : FluentWindow
     {
-		/// <summary>
-		/// 后台托盘     改为NotifyIcon控件实现，原代码撇了
-		/// </summary>
-
-
-		/// <summary>
-		/// 系统托盘通知
-		/// </summary>
-		public static NotificationManager notificationManager = new NotificationManager();
+        /// <summary>
+        /// 系统托盘通知
+        /// </summary>
+        public static NotificationManager notificationManager = new NotificationManager();
         /// <summary>
         /// 确认窗口
         /// </summary>
@@ -53,7 +47,7 @@ namespace Desktop
         /// <summary>
         /// 更新目录房间列表录制中数量定时器
         /// </summary>
-        private Timer IpvDetectionTimer;
+        private System.Threading.Timer IpvDetectionTimer;
 
         public static Config.RunConfig configViewModel { get; set; } = new();
 
@@ -63,7 +57,7 @@ namespace Desktop
         {
             if (Application_Startup())
             {
-                Environment.Exit(-114514);
+                Environment.Exit(Core.Init.ExitCodes.FatalError);
                 return;
             }
             InitializeComponent();
@@ -71,25 +65,15 @@ namespace Desktop
             this.DataContext = configViewModel;
             try
             {
-                Thread.Sleep(1000);
                 //初始化各种page
                 Init();
-				InitializeNotifyIcon();
+                InitializeNotifyIcon();
             }
             catch (Exception ex)
             {
                 System.Windows.MessageBox.Show($"UI初始化出现重大错误，错误堆栈{ex.ToString()}");
             }
             Version dotnetVersion = Environment.Version;
-            //Task.Run(() =>
-            //{
-            //    Dispatcher.Invoke(() =>
-            //    {
-            //        Thread.Sleep(2000);
-            //        MessageBox.Show("当前.NET版本:" + dotnetVersion.ToString());
-            //    });
-               
-            //});
         }
 
         /// <summary>
@@ -97,12 +81,12 @@ namespace Desktop
         /// </summary>
         public void Init()
         {
-            //设置房间卡片列表页定时任务
-            DataPage.Timer_DataPage = new Timer(DataPage.Refresher, null, 1, 500);
+            //设置房间卡片列表页定时任务（首次10ms立即触发，之后每2秒）
+            DataPage.Timer_DataPage = new System.Threading.Timer(DataPage.Refresher, null, 10, 2000);
             //设置登录失效事件（失效后弹出扫码框）
             DataSource.LoginStatus.LoginFailureEvent += LoginStatus_LoginFailureEvent;
             //设置登录态检测定时任务
-            DataSource.LoginStatus.Timer_LoginStatus = new Timer(DataSource.LoginStatus.RefreshLoginStatus, null, 1000 * 10, 1000 * 60 * 30);
+            DataSource.LoginStatus.Timer_LoginStatus = new System.Threading.Timer(DataSource.LoginStatus.RefreshLoginStatus, null, 1000 * 10, 1000 * 60 * 30);
             //版本更新检测
             Core.Tools.ProgramUpdates.NewVersionAvailableEvent += ProgramUpdates_NewVersionAvailableEvent;
             //设置默认显示页
@@ -112,10 +96,10 @@ namespace Desktop
             SnackbarService.SetSnackbarPresenter(MainSnackbar);
             //初始化托盘
             InitializeNotifyIcon();
-			//初始化确认窗口
-			_contentDialogService.SetDialogHost(RootContentDialogPresenter);
+            //初始化确认窗口
+            _contentDialogService.SetDialogHost(RootContentDialogPresenter);
             //初始化标题和远程模式标志以及检查远程和本地版本号一致性
-            InitializeTitleMode();
+            _ = InitializeTitleModeAsync();
             //监听开播事件，用于开播提醒
             Detect.detectRoom.LiveStart += DetectRoom_LiveStart;
             //初始化VLC播放器组件
@@ -129,94 +113,93 @@ namespace Desktop
             {
                 WindowsAPI.OpenWindowsHibernation();
             }
-            //更新目录房间列表录制中数量
-            IpvDetectionTimer = new Timer(UpdateNumberRecordedRoomsInDirectoryRoomList, null, 1, 1000);
+            //更新目录房间列表录制中数量（改为异步）
+            IpvDetectionTimer = new System.Threading.Timer(async _ => await UpdateNumberRecordedRoomsInDirectoryRoomListAsync(), null, 1000, 1000);
         }
 
-        private void InitializeTitleMode()
+        /// <summary>
+        /// 异步初始化标题和远程模式
+        /// </summary>
+        private async Task InitializeTitleModeAsync()
         {
-            Task.Run(() =>
+            if (!Config.Core_RunConfig._DesktopIP.Contains("//127.") && !Config.Core_RunConfig._DesktopIP.Contains("//0.") && !Config.Core_RunConfig._DesktopIP.Contains("localhost"))
             {
-                if (!Config.Core_RunConfig._DesktopIP.Contains("//127.") && !Config.Core_RunConfig._DesktopIP.Contains("//0.") && !Config.Core_RunConfig._DesktopIP.Contains("localhost"))
-                {
-                    ToConnectToRemoteServer = true;
-                }
+                ToConnectToRemoteServer = true;
+            }
 
-                bool F = false;
-                DokiClass doki = null;
-                do
+            int retryCount = 0;
+            const int maxRetries = 10;
+
+            while (retryCount < maxRetries)
+            {
+                try
                 {
-                    if (!F)
+                    DokiClass doki;
+                    if (Core.Config.Core_RunConfig._DesktopRemoteServer || Core.Config.Core_RunConfig._LocalHTTPMode)
                     {
-                        F = true;
+                        doki = await NetWork.Get.GetBodyAsync<DokiClass>($"{Config.Core_RunConfig._DesktopIP}:{Config.Core_RunConfig._DesktopPort}/api/dokidoki");
                     }
                     else
                     {
-                        Thread.Sleep(8000);
+                        doki = Core.Tools.DokiDoki.GetDoki();
                     }
-                    try
+
+                    if (doki != null)
                     {
-                        if (Core.Config.Core_RunConfig._DesktopRemoteServer || Core.Config.Core_RunConfig._LocalHTTPMode)
+                        await Dispatcher.InvokeAsync(() =>
                         {
-                            doki = NetWork.Get.GetBody<DokiClass>($"{Config.Core_RunConfig._DesktopIP}:{Config.Core_RunConfig._DesktopPort}/api/dokidoki");
-                        }
-                        else
-                        {
-                            doki = Core.Tools.DokiDoki.GetDoki();
-                        }
-                        if (doki != null)
-                        {
-                            Dispatcher.Invoke(() =>
+                            if (Core.Init.Ver != doki.Ver)
                             {
-
-                                if (Core.Init.Ver != doki.Ver)
-                                {
-                                    MainWindow.SnackbarService.Show("远程版本不一致", $"检测到远程模式下远程版本与本地Desktop版本不一致！这可能会造成未知的问题，请尽快更新双端到最新版本！\n本地Desktop版本号:【{Core.Init.Ver}】|远程版本号:【{doki.Ver}】", ControlAppearance.Danger, new SymbolIcon(SymbolRegular.ErrorCircle24), TimeSpan.FromSeconds(5));
-                                    this.Title = $"{doki.InitType}|本地 {Core.Init.Ver}|远程 {doki.Ver}| %%% |{Enum.GetName(typeof(Config.Mode), doki.StartMode)}【{doki.CompilationMode}】(编译时间:{doki.CompiledVersion}){(ToConnectToRemoteServer ? "【远程模式】" : "")}$$$";
-                                }
-                                else
-                                {
-                                    this.Title = $"{doki.InitType}|{doki.Ver}| %%% |{Enum.GetName(typeof(Config.Mode), doki.StartMode)}【{doki.CompilationMode}】(编译时间:{doki.CompiledVersion}){(ToConnectToRemoteServer ? "【远程模式】" : "")}$$$";
-                                }
-                                P_Title = this.Title;
-                                //UI_TitleBar.Title = P_Title.Replace("%%%","正在初始化");
-                            });
-                        }
+                                MainWindow.SnackbarService.Show("远程版本不一致", $"检测到远程模式下远程版本与本地Desktop版本不一致！\n本地Desktop版本号:【{Core.Init.Ver}】|远程版本号:【{doki.Ver}】", ControlAppearance.Danger, new SymbolIcon(SymbolRegular.ErrorCircle24), TimeSpan.FromSeconds(5));
+                                this.Title = $"{doki.InitType}|本地 {Core.Init.Ver}|远程 {doki.Ver}| %%% |{Enum.GetName(typeof(Config.Mode), doki.StartMode)}【{doki.CompilationMode}】(编译时间:{doki.CompiledVersion}){(ToConnectToRemoteServer ? "【远程模式】" : "")}$$$";
+                            }
+                            else
+                            {
+                                this.Title = $"{doki.InitType}|{doki.Ver}| %%% |{Enum.GetName(typeof(Config.Mode), doki.StartMode)}【{doki.CompilationMode}】(编译时间:{doki.CompiledVersion}){(ToConnectToRemoteServer ? "【远程模式】" : "")}$$$";
+                            }
+                            P_Title = this.Title;
+                        });
+                        return;
                     }
-                    catch (Exception ex)
-                    {
-                        Log.Error(nameof(InitializeTitleMode), "初始化标题失败", ex, false);
-                    }
+                }
+                catch (Exception ex)
+                {
+                    Log.Error(nameof(InitializeTitleModeAsync), "初始化标题失败", ex, false);
+                }
 
-                } while (doki == null);
-            });
+                retryCount++;
+                if (retryCount < maxRetries)
+                {
+                    await Task.Delay(8000);
+                }
+            }
         }
 
         public bool Application_Startup()
         {
-            Process process = RuningInstance();
+            Process process = RunningInstance();
             if (process != null)
             {
                 System.Windows.MessageBoxResult result = System.Windows.MessageBox.Show(
                     "已经有DDTV的Desktop实例正在运行中" +
-                   "\r点击‘是’强制启动一个新DDTV" +
-                   "\r点击‘否’阻止打开新窗口和新DDTV" +
+                   "\r点击'是'强制启动一个新DDTV" +
+                   "\r点击'否'阻止打开新窗口和新DDTV" +
                    $"\r======参考信息======" +
                    $"\rId:{process.Id}" +
                    $"\rProcessName:{process.ProcessName}"
                    , "已有DDTV实例正在运行", System.Windows.MessageBoxButton.YesNo, MessageBoxImage.Question);
                 if (result != System.Windows.MessageBoxResult.Yes)
                 {
-                    this.Show();  // 显示窗口
-                    this.WindowState = WindowState.Normal;  // 设置窗口状态为正常
+                    this.Show();
+                    this.WindowState = WindowState.Normal;
                     System.Threading.Thread.Sleep(500);
                     return true;
-
                 }
             }
             return false;
         }
-        public static Process RuningInstance(bool IsStart = true)
+
+        public static Process RunningInstance(bool IsStart = true)
         {
             try
             {
@@ -240,24 +223,20 @@ namespace Desktop
             catch (Exception) { }
             return null;
         }
-        
 
         /// <summary>
-        /// 初始化托盘图标，原有托盘图标动作重写到NotifyIcon控件内
+        /// 初始化托盘图标
         /// </summary>
-		private void InitializeNotifyIcon()
-		{
-			NotifyIcon notifyIconWindow = new NotifyIcon();
-			StateChanged += MainWindow_StateChanged;
-		}
+        private void InitializeNotifyIcon()
+        {
+            NotifyIcon notifyIconWindow = new NotifyIcon();
+            StateChanged += MainWindow_StateChanged;
+        }
 
-		/// <summary>
-		/// 窗口缩小事件
-		/// </summary>
-		/// <param name="sender"></param>
-		/// <param name="e"></param>
-		/// <exception cref="NotImplementedException"></exception>
-		private void MainWindow_StateChanged(object? sender, EventArgs e)
+        /// <summary>
+        /// 窗口缩小事件
+        /// </summary>
+        private void MainWindow_StateChanged(object? sender, EventArgs e)
         {
             if (Config.Core_RunConfig._ZoomOutMode != 0 && this.WindowState == WindowState.Minimized)
             {
@@ -265,19 +244,16 @@ namespace Desktop
             }
         }
 
-		/// <summary>
-		/// 开播事件，触发开播提醒
-		/// </summary>
-		/// <param name="sender"></param>
-		/// <param name="e"></param>
-		/// <exception cref="NotImplementedException"></exception>
-		private void DetectRoom_LiveStart(object? sender, (RoomCardClass Card, bool Danma_MessageReceived) LiveInvoke)
+        /// <summary>
+        /// 开播事件，触发开播提醒
+        /// </summary>
+        private void DetectRoom_LiveStart(object? sender, (RoomCardClass Card, bool Danma_MessageReceived) LiveInvoke)
         {
             RoomCardClass roomCard = LiveInvoke.Card;
             List<TriggerType> triggerTypes = sender as List<TriggerType> ?? new List<TriggerType>();
             if (roomCard.IsRemind && triggerTypes.Contains(TriggerType.RegularTasks))
             {
-                Dispatcher.Invoke(() =>
+                Dispatcher.InvokeAsync(() =>
                 {
                     notificationManager.Show(new NotificationContent
                     {
@@ -286,18 +262,15 @@ namespace Desktop
                         Type = NotificationType.Information
                     });
                 });
-
             }
         }
 
         /// <summary>
         /// 新版本检测事件
         /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
         private void ProgramUpdates_NewVersionAvailableEvent(object? sender, EventArgs e)
         {
-            Dispatcher.Invoke(() =>
+            Dispatcher.InvokeAsync(() =>
             {
                 MainWindow.SnackbarService.Show("检测到更新", $"检测到DDTV新版本：【{sender}】，{(ToConnectToRemoteServer ? "请更新远程服务端后，再到设置页面点击更新按钮进行更新" : "请到设置页面点击更新按钮进行更新")}", ControlAppearance.Primary, new SymbolIcon(SymbolRegular.DocumentHeaderArrowDown20), TimeSpan.FromSeconds(5));
             });
@@ -306,15 +279,12 @@ namespace Desktop
         /// <summary>
         /// 登陆失效事件
         /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        /// <exception cref="NotImplementedException"></exception>
         private void LoginStatus_LoginFailureEvent(object? sender, EventArgs e)
         {
             if (!DataSource.LoginStatus.LoginWindowDisplayStatus)
             {
                 DataSource.LoginStatus.LoginWindowDisplayStatus = true;
-                Dispatcher.Invoke(() =>
+                Dispatcher.InvokeAsync(() =>
                 {
                     if (Core.Init.GetRunTime() < 90)
                     {
@@ -323,88 +293,75 @@ namespace Desktop
                     }
                     else
                     {
-                        MainWindow.SnackbarService.Show("登录态检查失败", $"检查账号信息的登陆状态有效性失败，该提示一般是由于登录态已过期造成的（如账号在其他地方登陆过多，异地登录等触发风控），也有可能是网络不稳定造成，如果频繁提示或者录制失败请尝试重新登陆，重新登陆请到设置-登录态管理中进行", ControlAppearance.Primary, new SymbolIcon(SymbolRegular.CloudError20), TimeSpan.FromSeconds(30));
+                        MainWindow.SnackbarService.Show("登录态检查失败", $"检查账号信息的登陆状态有效性失败，该提示一般是由于登录态已过期造成的，请尝试重新登陆", ControlAppearance.Primary, new SymbolIcon(SymbolRegular.CloudError20), TimeSpan.FromSeconds(30));
                     }
                 });
-
             }
         }
 
-		/// <summary>
-		/// 关闭后事件 (保留用于其他可能的清理操作)
-		/// </summary>
-		/// <param name="sender"></param>
-		/// <param name="e"></param>
-		private void Window_Closed(object sender, EventArgs e)
-		{
-			// 如果通过其他方式关闭，确保清理操作执行
-			if (!IsProgrammaticClose)
-			{
-				DataPage.Timer_DataPage?.Dispose();
-				DataSource.LoginStatus.Timer_LoginStatus?.Dispose();
-				Environment.Exit(-114514);
-			}
-		}
+        /// <summary>
+        /// 关闭后事件
+        /// </summary>
+        private void Window_Closed(object sender, EventArgs e)
+        {
+            if (!IsProgrammaticClose)
+            {
+                DataPage.Timer_DataPage?.Dispose();
+                DataSource.LoginStatus.Timer_LoginStatus?.Dispose();
+                Environment.Exit(Core.Init.ExitCodes.FatalError);
+            }
+        }
 
-		/// <summary>
-		/// 关闭前确认关闭
-		/// </summary>
-		/// <param name="sender"></param>
-		/// <param name="e"></param>
-		private async void FluentWindow_Closing(object sender, System.ComponentModel.CancelEventArgs e)
-		{
-			if (!IsProgrammaticClose)
-			{
-				e.Cancel = true; // 先取消关闭
+        /// <summary>
+        /// 关闭前确认关闭
+        /// </summary>
+        private async void FluentWindow_Closing(object sender, System.ComponentModel.CancelEventArgs e)
+        {
+            if (!IsProgrammaticClose)
+            {
+                e.Cancel = true;
 
-				bool shouldExit = await ShowExitConfirmationAsync();
-				if (shouldExit)
-				{
-					Environment.Exit(-114514);
-				}
-			}
-		}
+                bool shouldExit = await ShowExitConfirmationAsync();
+                if (shouldExit)
+                {
+                    Environment.Exit(Core.Init.ExitCodes.FatalError);
+                }
+            }
+        }
 
-		/// <summary>
-		/// 执行退出确认逻辑（供外部调用）
-		/// </summary>
-		/// <returns>返回 true 表示用户确认退出，false 表示取消</returns>
-		public async Task<bool> ShowExitConfirmationAsync()
-		{
-			var messageBox = new Wpf.Ui.Controls.MessageBox
-			{
-				Title = "关闭确认",
-				Content = "确认要关闭DDTV吗？\r\n关闭后所有录制任务以及播放窗口均会结束。",
-				PrimaryButtonText = "是",
-				SecondaryButtonText = "否",
-				IsCloseButtonEnabled = false,
-				Owner = this,  // 设置父窗口为当前主窗口
-				WindowStartupLocation = WindowStartupLocation.CenterOwner  // 相对于父窗口居中
-			};
+        /// <summary>
+        /// 执行退出确认逻辑（供外部调用）
+        /// </summary>
+        public async Task<bool> ShowExitConfirmationAsync()
+        {
+            var messageBox = new Wpf.Ui.Controls.MessageBox
+            {
+                Title = "关闭确认",
+                Content = "确认要关闭DDTV吗？\r\n关闭后所有录制任务以及播放窗口均会结束。",
+                PrimaryButtonText = "是",
+                SecondaryButtonText = "否",
+                IsCloseButtonEnabled = false,
+                Owner = this,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner
+            };
 
-			var result = await messageBox.ShowDialogAsync();
+            var result = await messageBox.ShowDialogAsync();
 
-			if (result == Wpf.Ui.Controls.MessageBoxResult.Primary)
-			{
-				// 执行清理操作
-				DataPage.Timer_DataPage?.Dispose();
-				DataSource.LoginStatus.Timer_LoginStatus?.Dispose();
+            if (result == Wpf.Ui.Controls.MessageBoxResult.Primary)
+            {
+                DataPage.Timer_DataPage?.Dispose();
+                DataSource.LoginStatus.Timer_LoginStatus?.Dispose();
+                IsProgrammaticClose = true;
+                return true;
+            }
 
-				// 设置程序化关闭标志
-				IsProgrammaticClose = true;
+            return false;
+        }
 
-				return true;
-			}
-
-			return false;
-		}
-
-
-		/// <summary>
-		/// 更新目录房间列表录制中数量
-		/// </summary>
-		/// <param name="state"></param>
-		public static void UpdateNumberRecordedRoomsInDirectoryRoomList(object state)
+        /// <summary>
+        /// 异步更新目录房间列表录制中数量
+        /// </summary>
+        public static async Task UpdateNumberRecordedRoomsInDirectoryRoomListAsync()
         {
             try
             {
@@ -412,23 +369,24 @@ namespace Desktop
 
                 if (Core.Config.Core_RunConfig._DesktopRemoteServer || Core.Config.Core_RunConfig._LocalHTTPMode)
                 {
-                    count = NetWork.Post.PostBody<(int MonitoringCount, int LiveCount, int RecCount)>($"{Config.Core_RunConfig._DesktopIP}:{Config.Core_RunConfig._DesktopPort}/api/get_rooms/room_statistics").Result;
+                    count = await NetWork.Post.PostBody<(int MonitoringCount, int LiveCount, int RecCount)>(
+                        $"{Config.Core_RunConfig._DesktopIP}:{Config.Core_RunConfig._DesktopPort}/api/get_rooms/room_statistics");
                 }
                 else
                 {
                     count = Core.RuntimeObject._Room.Overview.GetRoomStatisticsOverview();
                 }
 
-
                 configViewModel.DataPageTitle = $"房间列表 ({count.RecCount})";
                 configViewModel.OnPropertyChanged("DataPageTitle");
 
-                configViewModel.ProgramTitle = P_Title.Replace("%%%",$"{count.RecCount}录制中|{count.LiveCount}开播中|{count.MonitoringCount}监控中").Replace("$$$",$"{(!Core.RuntimeObject.Account.AccountInformation.State ? "【警告！登陆态已失效】" : "")}");
+                configViewModel.ProgramTitle = P_Title.Replace("%%%", $"{count.RecCount}录制中|{count.LiveCount}开播中|{count.MonitoringCount}监控中")
+                    .Replace("$$$", $"{(!Core.RuntimeObject.Account.AccountInformation.State ? "【警告！登陆态已失效】" : "")}");
                 configViewModel.OnPropertyChanged("ProgramTitle");
             }
             catch (Exception ex)
             {
-                Log.Warn(nameof(UpdateNumberRecordedRoomsInDirectoryRoomList), "更新房间统计出现错误，错误堆栈已写文本记录文件", ex, false);
+                Log.Warn(nameof(UpdateNumberRecordedRoomsInDirectoryRoomListAsync), "更新房间统计出现错误", ex, false);
             }
         }
     }

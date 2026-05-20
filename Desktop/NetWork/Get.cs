@@ -1,4 +1,4 @@
-﻿using Core.LogModule;
+using Core.LogModule;
 using Newtonsoft.Json;
 using System.Net.Http;
 
@@ -6,11 +6,29 @@ namespace Desktop.NetWork
 {
     public class Get
     {
-        static int GetErrorCount = 0;
-        static bool First = true;
+        private static readonly HttpClient _httpClient = new HttpClient();
+        private static int _getErrorCount = 0;
+        private static bool _firstError = true;
+
+        static Get()
+        {
+            _httpClient.Timeout = TimeSpan.FromSeconds(8);
+        }
+
+        /// <summary>
+        /// 同步GET方法（保留兼容）
+        /// </summary>
         public static T GetBody<T>(string url, Dictionary<string, string> _dic = null)
         {
-            if (!string.IsNullOrEmpty(url) && url.Substring(0, 4) != "http")
+            return GetBodyAsync<T>(url, _dic).GetAwaiter().GetResult();
+        }
+
+        /// <summary>
+        /// 异步GET方法
+        /// </summary>
+        public static async Task<T> GetBodyAsync<T>(string url, Dictionary<string, string> _dic = null)
+        {
+            if (!string.IsNullOrEmpty(url) && url.Length > 4 && url.Substring(0, 4) != "http")
             {
                 url = "http://" + url;
             }
@@ -39,32 +57,28 @@ namespace Desktop.NetWork
                     Parameter += $"{item.Key}={item.Value}&";
                 }
 
-                using (HttpClient _httpClient = new HttpClient())
-                {
-                    _httpClient.Timeout = new TimeSpan(0, 0, 8);
-                    HttpResponseMessage response = _httpClient.GetAsync($"{url}?{Parameter}").Result;
-                    response.EnsureSuccessStatusCode();
-                    string responseBody = response.Content.ReadAsStringAsync().Result;
-                    OperationQueue.pack<T> A = JsonConvert.DeserializeObject<OperationQueue.pack<T>>(responseBody);
-                    return A.data;
-                }
+                HttpResponseMessage response = await _httpClient.GetAsync($"{url}?{Parameter}");
+                response.EnsureSuccessStatusCode();
+                string responseBody = await response.Content.ReadAsStringAsync();
+                OperationQueue.pack<T> A = JsonConvert.DeserializeObject<OperationQueue.pack<T>>(responseBody);
+                return A.data;
             }
             catch (Exception ex)
             {
-                GetErrorCount++;
-                if (GetErrorCount > 30)
+                _getErrorCount++;
+                if (_getErrorCount > 30)
                 {
-                    Log.Warn(nameof(GetBody), $"触发DesktopTips={GetErrorCount}");
-                    GetErrorCount = 0;
+                    Log.Warn(nameof(GetBodyAsync), $"触发DesktopTips={_getErrorCount}");
+                    _getErrorCount = 0;
                 }
-                if (First)
+                if (_firstError)
                 {
-                    First = false;
-                    Log.Warn(nameof(GetBody), $"发起Get请求出错({(Core.Config.Core_RunConfig._DesktopRemoteServer?"远程模式":"本地模式")}),URL:[{url}]，错误堆栈：\r\n{ex.ToString()}", ex);
+                    _firstError = false;
+                    Log.Warn(nameof(GetBodyAsync), $"发起Get请求出错({(Core.Config.Core_RunConfig._DesktopRemoteServer?"远程模式":"本地模式")}),URL:[{url}]，错误堆栈：\r\n{ex.ToString()}", ex);
                 }
                 else
                 {
-                    Log.Warn(nameof(GetBody), $"发起Get请求出错({(Core.Config.Core_RunConfig._DesktopRemoteServer?"远程模式":"本地模式")}),URL:[{url}]，错误堆栈：\r\n{ex.ToString()}", ex, false);
+                    Log.Warn(nameof(GetBodyAsync), $"发起Get请求出错({(Core.Config.Core_RunConfig._DesktopRemoteServer?"远程模式":"本地模式")}),URL:[{url}]，错误堆栈：\r\n{ex.ToString()}", ex, false);
                 }
 
                 return default;

@@ -1,4 +1,4 @@
-﻿using Core;
+using Core;
 using static Core.Tools.DokiDoki;
 
 namespace Desktop.DataSource
@@ -13,15 +13,21 @@ namespace Desktop.DataSource
         /// 登陆窗展示状态
         /// </summary>
         public static bool LoginWindowDisplayStatus = false;
-        public static Timer Timer_LoginStatus;
-        public static void RefreshLoginStatus(object state)
+        public static System.Threading.Timer Timer_LoginStatus;
+
+        /// <summary>
+        /// 异步刷新登录状态（Timer回调直接使用async void）
+        /// </summary>
+        public static async void RefreshLoginStatus(object state)
         {
-            Task.Run(() =>
+            try
             {
                 bool status = false;
                 if (Core.Config.Core_RunConfig._DesktopRemoteServer || Core.Config.Core_RunConfig._LocalHTTPMode)
                 {
-                    if (!NetWork.Post.PostBody<bool>($"{Config.Core_RunConfig._DesktopIP}:{Config.Core_RunConfig._DesktopPort}/api/login/get_login_status").Result)
+                    bool loginStatus = await NetWork.Post.PostBody<bool>(
+                        $"{Config.Core_RunConfig._DesktopIP}:{Config.Core_RunConfig._DesktopPort}/api/login/get_login_status");
+                    if (!loginStatus)
                     {
                         status = true;
                     }
@@ -37,7 +43,11 @@ namespace Desktop.DataSource
                 {
                     LoginFailureEvent?.Invoke(null, new EventArgs());
                 }
-            });
+            }
+            catch (Exception ex)
+            {
+                Core.LogModule.Log.Warn(nameof(RefreshLoginStatus), $"刷新登录状态失败", ex, false);
+            }
         }
     }
 }

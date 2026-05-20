@@ -21,15 +21,7 @@
 
 
 	<ItemGroup>
-		<Contain Include="win-x86;win-x64" />
-	</ItemGroup>
-
-	<ItemGroup>
 	  <Content Include="resource\DDTV.ico" />
-	</ItemGroup>
-
-	<ItemGroup>
-		<Exclud Include="linux-x64;linux-arm;linux-arm64;win-arm;win-arm64;osx-x64;osx-arm64" />
 	</ItemGroup>
 
 
