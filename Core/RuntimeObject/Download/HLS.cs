@@ -90,6 +90,7 @@ namespace Core.RuntimeObject.Download
                     bool InitialRequest = true;
                     long currentLocation = 0;
                     long StartLiveTime = card.live_time.Value;
+                    string lastMapUri = string.Empty;
 
                     stopWatch.Start();
                     int RetryCount = 0;
@@ -166,6 +167,7 @@ namespace Core.RuntimeObject.Download
                                     string DebugFile = string.Empty;
                                     //DebugFile = $"{hostClass.eXTM3U.eXTINFs[0].FileName+"_"+hostClass.eXTM3U.Map_URI.Replace(".m4s","_I.m4s")}";
                                     downloadSizeForThisCycle += WriteToFile(fs, $"{hostClass.host}{hostClass.base_url}{hostClass.eXTM3U.Map_URI}?{hostClass.extra}", DebugFile);
+                                    lastMapUri = hostClass.eXTM3U.Map_URI;
                                 }
                                 try
                                 {
@@ -202,7 +204,13 @@ namespace Core.RuntimeObject.Download
                                     Log.Error(nameof(DlwnloadHls_avc_mp4), $"[{card.Name}({card.RoomId})]检测分辨率变化时出现了错误，跳过这个处理", ex);
                                 }
 
-
+                                // 检测 init segment 是否变化（主播连麦/重新推流后 B站会发送新的 init segment）
+                                if (!InitialRequest && !string.IsNullOrEmpty(lastMapUri) && hostClass.eXTM3U.Map_URI != lastMapUri)
+                                {
+                                    Log.Info(nameof(DlwnloadHls_avc_mp4), $"[{card.Name}({card.RoomId})]检测到 init segment 变化（可能是主播连麦或重新推流），进行切割处理");
+                                    hlsState = DownloadTaskState.Success;
+                                    return;
+                                }
 
                                 if (currentLocation != 0 && Core.Config.Core_RunConfig._ReconnectAnchorReStream)
                                 {

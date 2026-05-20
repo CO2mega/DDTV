@@ -43,26 +43,66 @@ public partial class ToolsPage
             Task.Run(async () =>
             {
                 Transcode transcode = new Transcode();
+                string tempRepairedPath = null;
                 try
                 {
                     toolsPageModels.FixMessage = "正在修复文件";
                     toolsPageModels.OnPropertyChanged("FixMessage");
+
                     string before = result;
                     string after = result.Replace(".mp4", "_fix.mp4").Replace(".flv", "_fix.mp4");
+
+                    // 检测是否是 fMP4 文件且存在结构断裂
+                    if (Core.Tools.Fmp4Repair.DetectCorruption(before))
+                    {
+                        toolsPageModels.FixMessage = "检测到文件结构断裂，正在预处理...";
+                        toolsPageModels.OnPropertyChanged("FixMessage");
+
+                        tempRepairedPath = before + ".struct_repaired.mp4";
+                        bool repairSuccess = Core.Tools.Fmp4Repair.RepairStructure(before, tempRepairedPath);
+                        if (repairSuccess)
+                        {
+                            before = tempRepairedPath;
+                        }
+                        else
+                        {
+                            Log.Warn(nameof(ManualFix_Button_Click), $"fMP4 结构预处理失败，尝试直接转码: {result}");
+                        }
+                    }
+
                     await transcode.TranscodeAsync(before, after);
+
+                    // 清理临时文件
+                    if (!string.IsNullOrEmpty(tempRepairedPath) && System.IO.File.Exists(tempRepairedPath))
+                    {
+                        try
+                        {
+                            System.IO.File.Delete(tempRepairedPath);
+                        }
+                        catch { }
+                    }
+
                     toolsPageModels.FixMessage = "文件修复完成";
                     toolsPageModels.OnPropertyChanged("FixMessage");
                 }
                 catch (Exception ex)
                 {
+                    // 清理临时文件
+                    if (!string.IsNullOrEmpty(tempRepairedPath) && System.IO.File.Exists(tempRepairedPath))
+                    {
+                        try
+                        {
+                            System.IO.File.Delete(tempRepairedPath);
+                        }
+                        catch { }
+                    }
+
                     toolsPageModels.FixMessage = "修复文件发生错误，详情查看日志";
                     toolsPageModels.OnPropertyChanged("FixMessage");
                     Log.Error(nameof(ManualFix_Button_Click), $"手动Fix时出现意外错误，文件:{result}");
                 }
             });
         }
-
-
     }
 
 	//新按钮对应的事件（MKVToolnix修复）

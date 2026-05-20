@@ -27,7 +27,7 @@ namespace Core.Network
                 //#if DEBUG
                 //                Log.Debug(nameof(DownloadFile), $"发起Get请求，目标:{URL}");
                 //#endif
-                const int requestTimeoutSeconds = 1;
+                const int requestTimeoutSeconds = 2;
                 const int bufferSize = 81920;
 
                 for (int attempt = 0; attempt <= maxRetries; attempt++)
@@ -227,8 +227,8 @@ namespace Core.Network
             public static long GetFileToByte(FileStream fs, string URL, bool IsCookie = false, string referer = "", int maxRetries = 3, string DebugExpInfo = "")
             {
                 const int bufferSize = 81920;
-                // 1. 将超时时间设置为1秒
-                const int requestTimeoutSeconds = 1;
+                // 1. 将超时时间设置为2秒
+                const int requestTimeoutSeconds = 2;
 
                 for (int retries = 0; retries <= maxRetries; retries++)
                 {
@@ -250,39 +250,46 @@ namespace Core.Network
 
                                 long oldPosition = fs.Position;
 
-
-                                if (!string.IsNullOrEmpty(DebugExpInfo))
+                                try
                                 {
-                                    string tempPath = Path.Combine(Core.Config.Core_RunConfig._TemporaryFileDirectory, DebugExpInfo);
-
                                     using (Stream dataStream = response.Content.ReadAsStreamAsync(cts.Token).GetAwaiter().GetResult())
+                                    using (var ms = new MemoryStream())
                                     {
-                                        var buffer = new byte[bufferSize];
-                                        int read;
-                                        while ((read = dataStream.ReadAsync(buffer, 0, buffer.Length, cts.Token).GetAwaiter().GetResult()) > 0)
+                                        // 先完整下载到内存，避免网络异常时污染 FileStream
+                                        dataStream.CopyToAsync(ms, bufferSize, cts.Token).GetAwaiter().GetResult();
+                                        byte[] downloadedData = ms.ToArray();
+
+                                        // 下载完成后一次性写入 FileStream
+                                        fs.Write(downloadedData, 0, downloadedData.Length);
+
+                                        // 如果启用了调试导出，同时写入临时文件
+                                        if (!string.IsNullOrEmpty(DebugExpInfo))
                                         {
-                                            using (var tempFs = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None))
-                                            {
-                                                fs.WriteAsync(buffer, 0, read, cts.Token).GetAwaiter().GetResult();
-                                                tempFs.WriteAsync(buffer, 0, read, cts.Token).GetAwaiter().GetResult();
-                                            }
+                                            string tempPath = Path.Combine(Core.Config.Core_RunConfig._TemporaryFileDirectory, DebugExpInfo);
+                                            var directory = Path.GetDirectoryName(tempPath);
+                                            if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+                                                Directory.CreateDirectory(directory);
+                                            System.IO.File.WriteAllBytes(tempPath, downloadedData);
                                         }
+
+                                        //Log.Debug(nameof(GetFileToByte), $"成功下载 {downloadedData.Length} 字节。URL: {URL}");
+                                        return downloadedData.Length;
                                     }
                                 }
-                                else
+                                catch
                                 {
-                                    using (Stream dataStream = response.Content.ReadAsStreamAsync(cts.Token).GetAwaiter().GetResult())
+                                    // 如果异常发生时已经写入了部分数据，回滚 FileStream
+                                    if (fs != null && fs.CanSeek)
                                     {
-                                        // CopyToAsync 支持 CancellationToken
-                                        dataStream.CopyToAsync(fs, bufferSize, cts.Token).GetAwaiter().GetResult();
+                                        try
+                                        {
+                                            fs.Seek(oldPosition, SeekOrigin.Begin);
+                                            fs.SetLength(oldPosition);
+                                        }
+                                        catch { }
                                     }
+                                    throw; // 重新抛出，让外层 catch 处理重试逻辑
                                 }
-
-
-
-                                long bytesWritten = fs.Position - oldPosition;
-                                //Log.Debug(nameof(GetFileToByte), $"成功下载 {bytesWritten} 字节。URL: {URL}");
-                                return bytesWritten;
                             }
                         }
                         catch (OperationCanceledException ex)

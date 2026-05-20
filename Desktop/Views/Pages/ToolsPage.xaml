@@ -84,11 +84,14 @@
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="auto" />
                                 <ColumnDefinition Width="auto" />
-                                <ColumnDefinition Width="auto" />
                             </Grid.ColumnDefinitions>
-                            <ui:Button Grid.Column="0" Content="选择需要fix的文件"  VerticalAlignment="Center" Click="ManualFix_Button_Click"/>
-                            <ui:TextBlock Margin="24,0,0,0"  Grid.Column="1" FontSize="16"  VerticalAlignment="Center" FontTypography="Body" Text="选择文件后，修复将在后台进行，请稍候查看原路径'_fix'后缀文件即可"/>
-                            <ui:TextBlock Margin="50,0,0,0"  Grid.Column="2" FontSize="16"  VerticalAlignment="Center" FontTypography="Body" Text="{Binding FixMessage}" Foreground="White"/>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="*" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+                            <ui:Button Grid.Row="0" Grid.Column="0" Content="选择需要fix的文件"  VerticalAlignment="Center" Click="ManualFix_Button_Click"/>
+                            <ui:TextBlock Margin="24,0,0,0" Grid.Row="0" Grid.Column="1" FontSize="16"  VerticalAlignment="Center" FontTypography="Body" Text="选择文件后，修复将在后台进行，请稍候查看原路径'_fix'后缀文件即可"/>
+                            <ui:TextBlock Margin="0,10,0,0" Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2" FontSize="16" VerticalAlignment="Center" FontTypography="Body" Text="{Binding FixMessage}" Foreground="White"/>
                         </Grid>
                     </StackPanel>
 
