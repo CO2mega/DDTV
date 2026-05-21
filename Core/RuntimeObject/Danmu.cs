@@ -23,6 +23,8 @@ namespace Core.RuntimeObject
         #region Private Propertiess
 
         public static event EventHandler<RoomCardClass> DanmaTriggerReconnect;
+        private static readonly Dictionary<long, DateTime> _lastReconnectTime = new();
+        private static readonly object _reconnectLock = new object();
 
         #endregion
 
@@ -212,16 +214,33 @@ namespace Core.RuntimeObject
         {
             if (roomCard != null && roomCard.RoomId > 0 && roomCard.DownInfo!=null && roomCard.DownInfo.LiveChatListener!=null)
             {
-                var _ = roomCard.DownInfo.LiveChatListener.DanmuMessage;
+                lock (_reconnectLock)
+                {
+                    if (_lastReconnectTime.TryGetValue(roomCard.RoomId, out var lastTime) && (DateTime.Now - lastTime).TotalSeconds < 5)
+                    {
+                        Log.Info(nameof(ReconnectRoomDanmaObjects), $"房间{roomCard.RoomId}在5秒内已经触发过重连，跳过本次重连请求");
+                        return false;
+                    }
+                    _lastReconnectTime[roomCard.RoomId] = DateTime.Now;
+                }
+                var oldListener = roomCard.DownInfo.LiveChatListener;
+                var _ = oldListener.DanmuMessage;
+                var oldRegister = new List<string>(oldListener.Register);
+                var oldSaveCount = oldListener.SaveCount;
+                var oldFile = oldListener.File;
                 try
                 {
-                    roomCard.DownInfo.LiveChatListener._Cancel = true;
-                    roomCard.DownInfo.LiveChatListener.Dispose();
+                    oldListener._Cancel = true;
+                    oldListener.Dispose();
                 }
                 catch (Exception)
                 {}
-                roomCard.DownInfo.LiveChatListener = new(roomCard.RoomId,_);
-                roomCard.DownInfo.LiveChatListener.Connect();
+                var newListener = new Core.LiveChat.LiveChatListener(roomCard.RoomId, _);
+                newListener.Register = oldRegister;
+                newListener.SaveCount = oldSaveCount;
+                newListener.File = oldFile;
+                roomCard.DownInfo.LiveChatListener = newListener;
+                newListener.Connect();
                 DanmaTriggerReconnect?.Invoke(null, roomCard);
                 return true;
             }

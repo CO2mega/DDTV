@@ -50,7 +50,9 @@ namespace Desktop.Views.Windows
                     if (roomCard.DownInfo.LiveChatListener != null)
                     {
                         roomCard.DownInfo.LiveChatListener.Register.Add("DanmaOnlyWindow");
+                        roomCard.DownInfo.LiveChatListener.MessageReceived -= LiveChatListener_MessageReceived;
                         roomCard.DownInfo.LiveChatListener.MessageReceived += LiveChatListener_MessageReceived;
+                        Core.RuntimeObject.Danmu.DanmaTriggerReconnect -= Instance_DanmaTriggerReconnect;
                         Core.RuntimeObject.Danmu.DanmaTriggerReconnect += Instance_DanmaTriggerReconnect;
                     }
 
@@ -75,7 +77,10 @@ namespace Desktop.Views.Windows
                 DanmaCollection.Add(new DanmaOnly { Message = $"弹幕重连中..." });
             });
             if (e.DownInfo.LiveChatListener != null)
+            {
+                e.DownInfo.LiveChatListener.MessageReceived -= LiveChatListener_MessageReceived;
                 e.DownInfo.LiveChatListener.MessageReceived += LiveChatListener_MessageReceived;
+            }
         }
 
         private void LiveChatListener_MessageReceived(object? sender, Core.LiveChat.MessageEventArgs e)
@@ -169,6 +174,7 @@ namespace Desktop.Views.Windows
 
                 }
             }
+            Core.RuntimeObject.Danmu.DanmaTriggerReconnect -= Instance_DanmaTriggerReconnect;
         }
 
         public DanmaOnly? SelectedDanma { get; set; }

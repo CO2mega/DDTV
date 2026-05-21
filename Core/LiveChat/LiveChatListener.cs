@@ -32,6 +32,7 @@ namespace Core.LiveChat
         private DanMuWssInfo WssInfo = new();
         private bool _disposed = false;
         public bool _Cancel = false;
+        private bool _isReconnecting = false;
 
         public long RoomId { get; set; } = 0;
         public string Name { get; set; } = string.Empty;
@@ -76,7 +77,7 @@ namespace Core.LiveChat
             catch (Exception e)
             {
                 Log.Error(nameof(LiveChatListener) + "_" + nameof(Connect), $"LiveChatListener初始化Connect出现错误", e, true);
-                Dispose();
+                Close();
             }
         }
 
@@ -86,11 +87,11 @@ namespace Core.LiveChat
         /// </summary>
         public void Close()
         {
-            if (Register.Count != 0 && !_Cancel)
+            if (Register.Count != 0 && !_Cancel && !_isReconnecting)
             {
+                _isReconnecting = true;
                 Log.Info(nameof(LiveChatListener) + "_" + nameof(Close), $"LiveChatListener连接断开，符合重连条件，进行重连");
                 MessageReceived?.Invoke(this, new MessageEventArgs(JsonNode.Parse("{\"cmd\":\"Reconnect\"}").AsObject()));
-                return;
             }
 
             _Cancel = true;
@@ -208,8 +209,8 @@ namespace Core.LiveChat
 
                     if (attempt >= MaxRetryAttempts)
                     {
-                        Log.Warn(LogPrefix, "LiveChatListener连接3次都超时，放弃本次连接，10秒后重试", null, true);
-                        Dispose();
+                        Log.Warn(LogPrefix, "LiveChatListener连接3次都超时，放弃本次连接，触发重连流程", null, true);
+                        Close();
                         return;
                     }
 
@@ -301,6 +302,7 @@ namespace Core.LiveChat
                 catch (Exception e)
                 {
                     Log.Error(nameof(_innerHeartbeat), $"检测到网络环境发生变化，出现错误", e);
+                    Close();
                     break;
                 }
             }
@@ -332,7 +334,7 @@ namespace Core.LiveChat
                         }
                         catch (Exception e)
                         {
-                            Dispose();
+                            Close();
                             return;
                         }
                     }

@@ -89,20 +89,25 @@ namespace Core.RuntimeObject
                         if (roomCard.DownInfo.LiveChatListener == null)
                         {
                             roomCard.DownInfo.LiveChatListener = new Core.LiveChat.LiveChatListener(roomCard.RoomId);
+                            roomCard.DownInfo.LiveChatListener.Register.Add("DetectRoom_LiveStart");
                             roomCard.DownInfo.LiveChatListener.Connect();
                         }
                         else
                         {
+                            roomCard.DownInfo.LiveChatListener.Register.Add("DetectRoom_LiveStart");
                             Danmu.ReconnectRoomDanmaObjects(roomCard);
                         }
-                        roomCard.DownInfo.LiveChatListener.Register.Add("DetectRoom_LiveStart");
                     }
                     try
                     {
                         if (roomCard.IsRecDanmu)
                         {
                             if (roomCard.DownInfo.LiveChatListener != null)
+                            {
+                                roomCard.DownInfo.LiveChatListener.MessageReceived -= Basics.LiveChatListener_MessageReceived;
                                 roomCard.DownInfo.LiveChatListener.MessageReceived += Basics.LiveChatListener_MessageReceived;
+                            }
+                            Core.RuntimeObject.Danmu.DanmaTriggerReconnect -= Instance_DanmaTriggerReconnect;
                             Core.RuntimeObject.Danmu.DanmaTriggerReconnect += Instance_DanmaTriggerReconnect;
                         }
                         bool Reconnection = false;
@@ -169,6 +174,7 @@ namespace Core.RuntimeObject
                                 { }
                             }
                         }
+                        Core.RuntimeObject.Danmu.DanmaTriggerReconnect -= Instance_DanmaTriggerReconnect;
 
                     }
                 }
@@ -184,7 +190,10 @@ namespace Core.RuntimeObject
             if (e.IsRecDanmu)
             {
                 if (e.DownInfo.LiveChatListener != null)
+                {
+                    e.DownInfo.LiveChatListener.MessageReceived -= Basics.LiveChatListener_MessageReceived;
                     e.DownInfo.LiveChatListener.MessageReceived += Basics.LiveChatListener_MessageReceived;
+                }
             }
         }
 
