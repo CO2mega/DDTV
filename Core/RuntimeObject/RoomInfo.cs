@@ -82,8 +82,15 @@ namespace Core.RuntimeObject
                                 startTime = room.Value.DownInfo.StartTime,
                                 title = room.Value.Title.Value,
                                 status = room.Value.DownInfo.Status,
-                                downloadRate = room.Value.DownInfo.RealTimeDownloadSpe
+                                downloadRate = room.Value.DownInfo.RealTimeDownloadSpe,
+                                isDanma = false
                             };
+
+                            if (room.Value.DownInfo.LiveChatListener != null && room.Value.DownInfo.LiveChatListener.Register.Contains("DetectRoom_LiveStart"))
+                            {
+                                completeInfo.taskStatus.isDanma = true;
+                            }
+
                             completeRoomInfoRes.completeInfoList.Add(completeInfo);
                         }
                     }

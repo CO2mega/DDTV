@@ -166,6 +166,7 @@ namespace Desktop.DataSource
                     IsDanmu = item.userInfo.isRecDanmu,
                     IsRemind = item.userInfo.isRemind,
                     IsDownload = item.taskStatus.isDownload,
+                    IsDanmaRecording = item.taskStatus.isDanma,
                     Rec_Status = item.taskStatus.isDownload,
                     Live_Status = item.roomInfo.liveStatus,
                     DownloadSpe = item.taskStatus.downloadRate,
