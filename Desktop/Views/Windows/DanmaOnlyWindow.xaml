@@ -18,7 +18,7 @@
 
 
 
-        <ui:ListView Grid.Row="1" Margin="0,0,0,0" Name="DanmaView" ItemsSource="{Binding DanmaCollection}" SelectedIndex="0" SelectionMode="Single" Background="{x:Null}" BorderBrush="{x:Null}" ContextMenuOpening="DanmaView_ContextMenuOpening">
+        <ui:ListView Grid.Row="1" Margin="0,0,0,0" Name="DanmaView" ItemsSource="{Binding DanmaCollection}" SelectionMode="Single" Background="{x:Null}" BorderBrush="{x:Null}" ContextMenuOpening="DanmaView_ContextMenuOpening">
             <ui:ListView.ContextMenu>
                 <ContextMenu>
                     <MenuItem Header="复制" Click="CopyMenuItem_Click"/>
@@ -26,9 +26,44 @@
                     <MenuItem Header="设置本窗口置顶状态" Click="MenuItem_TopMost_Click"/>
                 </ContextMenu>
             </ui:ListView.ContextMenu>
+            <ui:ListView.ItemContainerStyle>
+                <Style TargetType="ListViewItem">
+                    <Setter Property="VerticalContentAlignment" Value="Top"/>
+                    <Setter Property="Foreground" Value="White"/>
+                    <Setter Property="Background" Value="Transparent"/>
+                    <Setter Property="BorderBrush" Value="Transparent"/>
+                    <Setter Property="Padding" Value="4,2"/>
+                    <Setter Property="Template">
+                        <Setter.Value>
+                            <ControlTemplate TargetType="ListViewItem">
+                                <Border Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}">
+                                    <GridViewRowPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" 
+                                                          VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                                </Border>
+                            </ControlTemplate>
+                        </Setter.Value>
+                    </Setter>
+                    <Style.Triggers>
+                        <Trigger Property="IsSelected" Value="True">
+                            <Setter Property="Background" Value="Transparent"/>
+                            <Setter Property="Foreground" Value="White"/>
+                            <Setter Property="BorderBrush" Value="Transparent"/>
+                        </Trigger>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter Property="Background" Value="#22FFFFFF"/>
+                        </Trigger>
+                    </Style.Triggers>
+                </Style>
+            </ui:ListView.ItemContainerStyle>
             <ui:ListView.View>
                 <ui:GridView>
-                    <ui:GridViewColumn MinWidth="390" Width="auto" DisplayMemberBinding="{Binding Message}" Header="消息"/>
+                    <ui:GridViewColumn Width="{Binding ActualWidth, RelativeSource={RelativeSource AncestorType={x:Type ui:ListView}}}" Header="消息">
+                        <ui:GridViewColumn.CellTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding Message}" TextWrapping="Wrap" Margin="4,2,18,2" Foreground="White"/>
+                            </DataTemplate>
+                        </ui:GridViewColumn.CellTemplate>
+                    </ui:GridViewColumn>
                 </ui:GridView>
             </ui:ListView.View>
         </ui:ListView>
