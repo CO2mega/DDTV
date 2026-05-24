@@ -148,7 +148,11 @@ namespace Update
             lock (_consoleLock)
             {
                 if (!_initialized) return;
-                Console.SetCursorPosition(0, BottomBorderRow);
+                int row = BottomBorderRow;
+                if (row >= 0 && row < Console.BufferHeight)
+                    Console.SetCursorPosition(0, row);
+                else
+                    Console.WriteLine();
             }
         }
 
@@ -258,7 +262,7 @@ namespace Update
                 int row = ActiveFirstRow + slot;
                 WriteLineContent(row, linePrefix + status, innerWidth);
 
-                if (_useColor)
+                if (_useColor && row >= 0 && row < Console.BufferHeight)
                 {
                     int statusCol = 1 + innerWidth - 8;
                     Console.SetCursorPosition(statusCol, row);
@@ -296,7 +300,7 @@ namespace Update
                     }
                     WriteLineContent(row, line, innerWidth);
 
-                    if (_useColor && i < _completedList.Count)
+                    if (_useColor && i < _completedList.Count && row >= 0 && row < Console.BufferHeight)
                     {
                         int statusCol = 1 + innerWidth - 8;
                         Console.SetCursorPosition(statusCol, row);
@@ -310,6 +314,7 @@ namespace Update
 
         private void WriteLineContent(int row, string content, int innerWidth)
         {
+            if (row < 0 || row >= Console.BufferHeight) return;
             Console.SetCursorPosition(0, row);
             Console.Write("║");
             int cw = GetDisplayWidth(content);
