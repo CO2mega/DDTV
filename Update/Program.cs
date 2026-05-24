@@ -1,12 +1,15 @@
-﻿using Amazon.S3;
+using Amazon.S3;
 using Amazon.S3.Model;
+using Downloader;
 using Newtonsoft.Json;
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
+using System.Linq;
 using System.Net;
-using System.Net.Http;
-using System.Net.Sockets;
-using System.Text.RegularExpressions;
+using System.Threading;
+using System.Threading.Tasks;
 using static Update.GetFileSchemaJSON;
 
 namespace Update
@@ -24,14 +27,300 @@ namespace Update
 
         public static bool RemoteFailure = false;
 
-
         //仅拥有OSS目标桶读取权限的AK信息
         private static string endpoint = "https://oss-cn-shanghai.aliyuncs.com";
         public static string Bucket = "ddtv5-update";
-        private static AmazonS3Client ossClient = null;
 
+        // 备份目录（相对于程序目录）
+        private static readonly string BackupDir = "../.update_backup";
 
-        public static void Main(string[] args)
+        public static async Task Main(string[] args)
+        {
+            ParseArgs(args);
+            if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("DDTV_Docker_Project")))
+            {
+                Isdocker = true;
+            }
+
+            Console.WriteLine("开始更新DDTV，请勿点击本程序任何位置，防止进入'快捷编辑模式'阻塞更新，如果已点击，请点击回车恢复");
+            DisableConsoleQuickEdit.Go();
+            Environment.CurrentDirectory = AppDomain.CurrentDomain.BaseDirectory;//将当前路径从 引用路径 修改至 程序所在目录
+            Console.WriteLine($"当前工作路径:{Environment.CurrentDirectory}");
+
+            if (!checkVersion())
+            {
+                Console.WriteLine($"未检测到新版本");
+                if (Isdocker)
+                    return;
+                Console.ReadKey();
+                return;
+            }
+
+            string DL_FileListUrl = $"/{type}/{(Isdev ? "dev" : "release")}/{type}_Update.json";
+            string web = Get(DL_FileListUrl);
+            var B = JsonConvert.DeserializeObject<FileInfoClass>(web);
+            if (B != null)
+            {
+                var updateList = new List<UpdateItem>();
+                foreach (var item in B.files)
+                {
+                    string FilePath = $"../../{item.FilePath}";
+                    if (Isdocker)
+                    {
+                        FilePath = FilePath.Replace("bin/", "DDTV/");
+                    }
+
+                    if (item.FilePath.Contains("bin/Update"))
+                    {
+                        continue;
+                    }
+
+                    bool needUpdate = true;
+                    if (File.Exists(FilePath))
+                    {
+                        string Md5 = MD5Hash.GetMD5HashFromFile(FilePath);
+                        if (Md5 == item.FileMd5)
+                        {
+                            needUpdate = false;
+                        }
+                    }
+
+                    if (needUpdate)
+                    {
+                        updateList.Add(new UpdateItem
+                        {
+                            Url = $"/{type}/{(Isdev ? "dev" : "release")}/{item.FilePath}",
+                            FileName = item.FileName,
+                            FilePath = FilePath,
+                            Size = item.Size,
+                            Md5 = item.FileMd5
+                        });
+                    }
+                }
+
+                if (updateList.Count == 0)
+                {
+                    Console.WriteLine("所有文件已是最新版本");
+                    UpdateVerIni();
+                    StartMainProgram();
+                    if (!Isdocker)
+                    {
+                        Console.WriteLine("按任意键退出...");
+                        Console.ReadKey();
+                    }
+                    return;
+                }
+
+                Console.WriteLine($"共需更新 {updateList.Count} 个文件，总大小 {FormatBytes(updateList.Sum(x => x.Size))}");
+                Console.WriteLine("按任意键开始下载...");
+                if (!Isdocker)
+                {
+                    Console.ReadKey(true);
+                }
+                Console.Clear();
+
+                // 备份阶段
+                var backupMap = new Dictionary<string, string>();
+                var newFiles = new List<string>();
+                if (!PrepareBackup(updateList, backupMap, newFiles))
+                {
+                    Console.WriteLine("[!] 备份文件失败，更新终止");
+                    Environment.Exit(1);
+                    return;
+                }
+
+                // Downloader 5.5.0 配置
+                var downloadOpt = new DownloadConfiguration()
+                {
+                    ChunkCount = 2,
+                    ParallelDownload = true,
+                    ParallelCount = 2,
+                    MaxTryAgainOnFailure = 2,
+                    BlockTimeout = 5000,
+                    HttpClientTimeout = 30000,
+                    RequestConfiguration = new RequestConfiguration()
+                    {
+                        Referer = "https://update5.ddtv.pro",
+                        Headers = new System.Net.WebHeaderCollection(),
+                        KeepAlive = true,
+                        ProtocolVersion = HttpVersion.Version11,
+                    }
+                };
+
+                // 进度渲染
+                var renderer = new ConsoleProgressRenderer(8);
+                long totalBytes = updateList.Sum(x => x.Size);
+                renderer.Initialize(updateList.Count, totalBytes, type, Isdev ? "dev" : "release", ver, R_ver);
+
+                // 并发下载
+                var semaphore = new SemaphoreSlim(8);
+                var cts = new CancellationTokenSource();
+                var tasks = new List<Task<bool>>();
+                var slotLock = new object();
+                var slotOccupied = new bool[8];
+                int completedCount = 0;
+                long completedBytes = 0;
+
+                foreach (var item in updateList)
+                {
+                    var localItem = item;
+                    tasks.Add(Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await semaphore.WaitAsync(cts.Token);
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            return false;
+                        }
+                        int assignedSlot = -1;
+                        try
+                        {
+                            if (cts.IsCancellationRequested) return false;
+
+                            // 分配槽位
+                            lock (slotLock)
+                            {
+                                for (int i = 0; i < 8; i++)
+                                {
+                                    if (!slotOccupied[i])
+                                    {
+                                        assignedSlot = i;
+                                        slotOccupied[i] = true;
+                                        break;
+                                    }
+                                }
+                                if (assignedSlot < 0) assignedSlot = 0;
+                            }
+
+                            renderer.SetSlotFile(assignedSlot, localItem.FileName, localItem.Size);
+
+                            string? directoryPath = Path.GetDirectoryName(localItem.FilePath);
+                            if (!string.IsNullOrEmpty(directoryPath) && !Directory.Exists(directoryPath))
+                                Directory.CreateDirectory(directoryPath);
+
+                            bool ok = await DownloadFileWithFallbackAsync(
+                                localItem.Url,
+                                localItem.FilePath,
+                                localItem.Md5,
+                                downloadOpt,
+                                renderer,
+                                assignedSlot,
+                                cts.Token);
+
+                            // MD5 校验
+                            if (ok)
+                            {
+                                string? md5 = null;
+                                try
+                                {
+                                    md5 = MD5Hash.GetMD5HashFromFile(localItem.FilePath);
+                                }
+                                catch { }
+
+                                if (md5 != localItem.Md5)
+                                {
+                                    Console.WriteLine($"[{localItem.FileName}] MD5校验失败，尝试重新下载...");
+                                    try { File.Delete(localItem.FilePath); } catch { }
+                                    ok = await DownloadFileWithFallbackAsync(
+                                        localItem.Url,
+                                        localItem.FilePath,
+                                        localItem.Md5,
+                                        downloadOpt,
+                                        renderer,
+                                        assignedSlot,
+                                        cts.Token);
+
+                                    if (ok)
+                                    {
+                                        md5 = null;
+                                        try { md5 = MD5Hash.GetMD5HashFromFile(localItem.FilePath); } catch { }
+                                        ok = md5 == localItem.Md5;
+                                    }
+                                }
+                            }
+
+                            if (!ok && !cts.IsCancellationRequested)
+                            {
+                                cts.Cancel();
+                            }
+
+                            if (ok)
+                            {
+                                Interlocked.Increment(ref completedCount);
+                                Interlocked.Add(ref completedBytes, localItem.Size);
+                                renderer.SetSlotCompleted(assignedSlot, true);
+                                renderer.SetOverallProgress(completedCount, completedBytes);
+                            }
+                            else
+                            {
+                                renderer.SetSlotCompleted(assignedSlot, false, cts.IsCancellationRequested ? "CANCELED" : "FAILED  ");
+                            }
+
+                            return ok;
+                        }
+                        finally
+                        {
+                            if (assignedSlot >= 0)
+                            {
+                                lock (slotLock)
+                                {
+                                    slotOccupied[assignedSlot] = false;
+                                }
+                            }
+                            semaphore.Release();
+                        }
+                    }));
+                }
+
+                bool[] results = await Task.WhenAll(tasks);
+                bool allOk = results.All(x => x);
+
+                renderer.Finish();
+
+                if (!allOk)
+                {
+                    await RollbackAsync(backupMap, newFiles, updateList);
+                    Console.WriteLine("[!] 更新失败，所有更改已回滚");
+                    Console.WriteLine("请检查网络状态或代理设置后重试");
+                    if (!Isdocker)
+                    {
+                        Console.WriteLine("按任意键退出...");
+                        Console.ReadKey();
+                    }
+                    Environment.Exit(1);
+                    return;
+                }
+
+                // 清理备份
+                try
+                {
+                    if (Directory.Exists(BackupDir))
+                        Directory.Delete(BackupDir, true);
+                }
+                catch { }
+
+                UpdateVerIni();
+
+                Console.WriteLine($"更新DDTV到{type}-{R_ver}完成");
+                StartMainProgram();
+
+                if (!Isdocker)
+                {
+                    Console.WriteLine("按任意键退出...");
+                    Console.ReadKey();
+                }
+            }
+            else
+            {
+                Console.WriteLine($"更新失败：获取更新列表失败，请检查网络状态，按任意键继续");
+                if (!Isdocker)
+                    Console.ReadKey();
+            }
+        }
+
+        private static void ParseArgs(string[] args)
         {
             if (args.Length != 0)
             {
@@ -48,132 +337,8 @@ namespace Update
                     Isdocker = true;
                 }
             }
-            if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("DDTV_Docker_Project")))
-            {
-                Isdocker = true;
-            }
-
-            Console.WriteLine("开始更新DDTV，请勿点击本程序任何位置，防止进入'快捷编辑模式'阻塞更新，如果已点击，请点击回车回复");
-            DisableConsoleQuickEdit.Go();
-            Environment.CurrentDirectory = AppDomain.CurrentDomain.BaseDirectory;//将当前路径从 引用路径 修改至 程序所在目录
-            Console.WriteLine($"当前工作路径:{Environment.CurrentDirectory}");
-            Console.WriteLine(Environment.CurrentDirectory);
-            Dictionary<string, (string Name, string FilePath, long Size)> map = new Dictionary<string, (string Name, string FilePath, long Size)>();
-            HttpClient _httpClient = new HttpClient();
-            _httpClient.Timeout = new TimeSpan(0, 0, 10);
-            _httpClient.DefaultRequestHeaders.Referrer = new Uri("https://update5.ddtv.pro");
-            if (checkVersion())
-            {
-                string DL_FileListUrl = $"/{type}/{(Isdev ? "dev" : "release")}/{type}_Update.json";
-                string web = Get(DL_FileListUrl);
-                var B = JsonConvert.DeserializeObject<FileInfoClass>(web);
-                if (B != null)
-                {
-                    foreach (var item in B.files)
-                    {
-                        //文件更新状态（是否需要更新）
-                        bool FileUpdateStatus = true;
-
-                        string FilePath = $"../../{item.FilePath}";
-                        if (Isdocker)
-                        {
-                            FilePath = FilePath.Replace("bin/", "DDTV/");
-                        }
-
-                        if (item.FilePath.Contains("bin/Update"))
-                        {
-                            FileUpdateStatus = false;
-                        }
-                        else
-                        {
-                            if (File.Exists(FilePath))
-                            {
-                                string Md5 = MD5Hash.GetMD5HashFromFile(FilePath);
-                                if (Md5 == item.FileMd5)
-                                {
-                                    FileUpdateStatus = false;
-                                }
-                            }
-                        }
-
-                        if (FileUpdateStatus)
-                        {
-                            map.Add($"/{type}/{(Isdev ? "dev" : "release")}/{item.FilePath}", (item.FileName, FilePath, item.Size));
-                        }
-                    }
-                    int i = 1;
-                    foreach (var item in map)
-                    {
-                        long bytes = item.Value.Size;
-                        string size = (bytes >= 1 << 30) ? $"{(double)bytes / (1 << 30):F2} GB" : (bytes >= 1 << 20) ? $"{(double)bytes / (1 << 20):F2} MB" : (bytes >= 1 << 10) ? $"{(double)bytes / (1 << 10):F2} KB" : $"{bytes} Bytes";
-                        Console.Write($"进度：{i}/{map.Count}  |  文件大小{size}，开始更新文件【{item.Value.Name}】.......");
-                        string directoryPath = Path.GetDirectoryName(item.Value.FilePath);
-                        if (!Directory.Exists(directoryPath))
-                        {
-                            Directory.CreateDirectory(directoryPath);
-                        }
-                        bool dl_ok = false;
-                        int time = 10;
-                        do
-                        {
-                            try
-                            {
-                                dl_ok = DownloadFileAsync(item.Key, item.Value.FilePath, time);
-                            }
-                            catch (Exception)
-                            {
-
-                            }
-                            if (time < 36000)
-                            {
-                                time = time * 2;
-                            }
-                            else
-                            {
-                                Console.WriteLine($" | 【{item.Value.Name}】超时跳过");
-                                break;
-                            }
-                        } while (!dl_ok);
-                        Console.WriteLine($" | 更新文件【{item.Value.Name}】成功");
-                        i++;
-                    }
-                    Console.WriteLine($"更新完成");
-                    if (OperatingSystem.IsWindows())
-                    {
-                        if (type.Contains("DDTV-Server"))
-                        {
-                            Process.Start("../Server.exe");
-                            return;
-                        }
-                        else if (type.Contains("DDTV-Client"))
-                        {
-                            Process.Start("../Client.exe");
-                            return;
-                        }
-                        else if (type.Contains("DDTV-Desktop"))
-                        {
-                            Process.Start("../Desktop.exe");
-                            return;
-                        }
-                    }
-                    Console.Write($"更新DDTV到{type}-{R_ver}完成，请手动启动DDTV");
-                    if (Isdocker)
-                        Console.WriteLine($"，按任意键继续");
-                }
-                else
-                {
-                    Console.WriteLine($"更新失败：获取更新列表失败，请检查网络状态，按任意键继续");
-                }
-            }
-            else
-            {
-                Console.WriteLine($"未检测到新版本");
-            }
-            if (Isdocker)
-                return;
-
-            Console.ReadKey();
         }
+
         public static bool checkVersion()
         {
             if (!File.Exists(verFile))
@@ -201,15 +366,14 @@ namespace Update
             Console.WriteLine($"当前本地版本{type}-{ver}[{(Isdev ? "dev" : "release")}]");
             Console.WriteLine("开始获取最新版本号....");
             string DL_VerFileUrl = $"/{type}/{(Isdev ? "dev" : "release")}/ver.ini";
-            string R_Ver = Get(DL_VerFileUrl).TrimEnd();
-            Console.WriteLine($"获取到当前服务端版本:{R_Ver}");
+            string remoteVer = Get(DL_VerFileUrl).TrimEnd();
+            R_ver = remoteVer;
+            Console.WriteLine($"获取到当前服务端版本:{R_ver}");
 
-            if (!string.IsNullOrEmpty(R_Ver) && R_Ver.Split('.').Length > 0)
+            if (!string.IsNullOrEmpty(R_ver) && R_ver.Split('.').Length > 0)
             {
-                //老版本
                 Version Before = new Version(ver.Replace("dev", "").Replace("release", ""));
-                //新版本
-                Version After = new Version(R_Ver.Replace("dev", "").Replace("release", ""));
+                Version After = new Version(R_ver.Replace("dev", "").Replace("release", ""));
                 if (After > Before)
                 {
                     Console.WriteLine($"检测到新版本，获取远程文件树开始更新.......");
@@ -230,7 +394,7 @@ namespace Update
 
         public static string Get(string URL)
         {
-            bool A = false;
+            bool firstAttempt = true;
             string str = string.Empty;
             int error_count = 0;
             string FileDownloadAddress = string.Empty;
@@ -238,10 +402,9 @@ namespace Update
             {
                 try
                 {
-                    if (A)
+                    if (!firstAttempt)
                         Thread.Sleep(100);
-                    if (!A)
-                        A = true;
+                    firstAttempt = false;
 
                     if (error_count > 0)
                     {
@@ -250,28 +413,26 @@ namespace Update
                             Console.WriteLine($"更新失败，网络错误过多，请检查网络状况或者代理设置后重试.....");
                             return "";
                         }
-                        //Console.WriteLine($"使用备用服务器进行重试.....");
-                        FileDownloadAddress = AlternativeDomainName + URL;
                         Console.WriteLine($"从主服务器获取更新失败，尝试从备用服务器获取....");
+                        FileDownloadAddress = AlternativeDomainName + URL;
 
                         string FileKey = URL.Substring(1, URL.Length - 1);
 
                         var config = new AmazonS3Config() { ServiceURL = endpoint, MaxErrorRetry = 2, Timeout = TimeSpan.FromSeconds(20) };
                         var ossClient = new AmazonS3Client(AKID, AKSecret, config);
-                        using GetObjectResponse response = ossClient.GetObjectAsync(Bucket, FileKey).Result;
-                        using StreamReader reader = new StreamReader(response.ResponseStream);
+                        using var response = ossClient.GetObjectAsync(Bucket, FileKey).Result;
+                        using var reader = new StreamReader(response.ResponseStream);
                         str = reader.ReadToEndAsync().Result;
                         error_count++;
                     }
                     else
                     {
                         FileDownloadAddress = MainDomainName + URL;
-                        HttpClient _httpClient = new HttpClient();
+                        using var _httpClient = new HttpClient();
                         _httpClient.DefaultRequestHeaders.Referrer = new Uri("https://update5.ddtv.pro");
                         str = _httpClient.GetStringAsync(FileDownloadAddress).Result;
                         error_count++;
                     }
-
                 }
                 catch (WebException webex)
                 {
@@ -281,101 +442,311 @@ namespace Update
                         case WebExceptionStatus.Timeout:
                             Console.WriteLine($"下载文件超时:{FileDownloadAddress}");
                             break;
-
                         default:
                             Console.WriteLine($"网络错误，请检查网络状况或者代理设置...开始重试.....");
                             break;
                     }
                 }
-                catch (Exception ex)
+                catch (Exception)
                 {
                     error_count++;
-                    Console.WriteLine($"=下载文件超时:{FileDownloadAddress}\r\n");
-
+                    Console.WriteLine($"下载文件超时/错误:{FileDownloadAddress}");
                 }
-            } while (string.IsNullOrEmpty(str));
-            Console.WriteLine($"下载成功...");
+            } while (string.IsNullOrEmpty(str) && error_count <= 3);
             return str;
         }
 
-        public static bool DownloadFileAsync(string url, string outputPath, long Time = 10)
+        private static async Task<bool> DownloadFileWithFallbackAsync(
+            string url,
+            string outputPath,
+            string expectedMd5,
+            DownloadConfiguration baseConfig,
+            ConsoleProgressRenderer renderer,
+            int slot,
+            CancellationToken ct)
         {
-            int error_count = 0;
-            while (true)
+            // L1: 主服务器
+            if (!RemoteFailure)
             {
-                string FileDownloadAddress;
-                
-                if (RemoteFailure || error_count > 2)
+                string address = MainDomainName + url;
+                // L1: 主服务器
+                if (await DownloadWithDownloaderAsync(address, outputPath, baseConfig, renderer, slot, ct))
+                    return true;
+                RemoteFailure = true;
+            }
+
+            // L2: 备用服务器
+            string altAddress = AlternativeDomainName + url;
+            // 主服务器失败，尝试备用服务器
+            if (await DownloadWithDownloaderAsync(altAddress, outputPath, baseConfig, renderer, slot, ct))
+                return true;
+
+            // L3: 阿里云OSS
+            // 备用服务器失败，尝试阿里云OSS
+            if (await DownloadFromOssAsync(url, outputPath, 10, renderer, slot, ct))
+                return true;
+
+            // 所有下载源均失败
+            return false;
+        }
+
+        private static async Task<bool> DownloadWithDownloaderAsync(
+            string url,
+            string outputPath,
+            DownloadConfiguration config,
+            ConsoleProgressRenderer renderer,
+            int slot,
+            CancellationToken ct)
+        {
+            try
+            {
+                var downloader = new DownloadService(config);
+                downloader.DownloadProgressChanged += (s, e) =>
                 {
-                    if (error_count > 5)
+                    if (ct.IsCancellationRequested)
                     {
+                        try { downloader.CancelAsync(); } catch { }
+                        return;
+                    }
+                    double percent = e.ProgressPercentage;
+                    long received = e.ReceivedBytesSize;
+                    double speed = e.BytesPerSecondSpeed;
+                    string speedStr = speed > 0 ? $"{FormatBytes((long)speed)}/s" : "";
+                    renderer.UpdateSlotProgress(slot, percent, received, speedStr);
+                };
+
+                await downloader.DownloadFileTaskAsync(url, outputPath);
+                return true;
+            }
+            catch (OperationCanceledException)
+            {
+                return false;
+            }
+            catch (Exception)
+            {
+                // 下载失败
+                return false;
+            }
+        }
+
+        private static async Task<bool> DownloadFromOssAsync(
+            string url,
+            string outputPath,
+            long timeoutSeconds,
+            ConsoleProgressRenderer renderer,
+            int slot,
+            CancellationToken ct)
+        {
+            try
+            {
+                var config = new AmazonS3Config()
+                {
+                    ServiceURL = endpoint,
+                    MaxErrorRetry = 2,
+                    Timeout = TimeSpan.FromSeconds(20 + timeoutSeconds)
+                };
+                var ossClient = new AmazonS3Client(AKID, AKSecret, config);
+                string FileKey = url.Substring(1, url.Length - 1);
+
+                using var response = await ossClient.GetObjectAsync(Bucket, FileKey, ct);
+
+                string tempPath = outputPath + ".oss_download";
+                await response.WriteResponseStreamToFileAsync(tempPath, false, ct);
+
+                if (File.Exists(outputPath))
+                    File.Delete(outputPath);
+                File.Move(tempPath, outputPath);
+
+                return true;
+            }
+            catch (OperationCanceledException)
+            {
+                return false;
+            }
+            catch (Exception)
+            {
+                // OSS下载失败已处理
+                return false;
+            }
+        }
+
+        private static bool PrepareBackup(List<UpdateItem> items, Dictionary<string, string> backupMap, List<string> newFiles)
+        {
+            try
+            {
+                if (Directory.Exists(BackupDir))
+                    Directory.Delete(BackupDir, true);
+                Directory.CreateDirectory(BackupDir);
+
+                string appRoot = Path.GetFullPath("../../");
+
+                foreach (var item in items)
+                {
+                    if (File.Exists(item.FilePath))
+                    {
+                        string targetAbs = Path.GetFullPath(item.FilePath);
+                        string relPath = Path.GetRelativePath(appRoot, targetAbs);
+                        string backupPath = Path.Combine(Path.GetFullPath(BackupDir), relPath);
+
+                        string? dir = Path.GetDirectoryName(backupPath);
+                        if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                            Directory.CreateDirectory(dir);
+
+                        File.Copy(item.FilePath, backupPath, true);
+                        backupMap[item.FilePath] = backupPath;
+                    }
+                    else
+                    {
+                        newFiles.Add(item.FilePath);
+                    }
+                }
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"备份失败: {ex.Message}");
+                return false;
+            }
+        }
+
+        private static async Task RollbackAsync(Dictionary<string, string> backupMap, List<string> newFiles, List<UpdateItem> updateItems)
+        {
+            Console.WriteLine("\n[!] 更新失败，开始回滚更改...");
+
+            // 1. 恢复备份
+            foreach (var kv in backupMap)
+            {
+                try
+                {
+                    string? dir = Path.GetDirectoryName(kv.Key);
+                    if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                        Directory.CreateDirectory(dir);
+                    File.Copy(kv.Value, kv.Key, overwrite: true);
+                    Console.WriteLine($"  [回滚] 恢复: {Path.GetFileName(kv.Key)}");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"  [回滚警告] 恢复失败 {Path.GetFileName(kv.Key)}: {ex.Message}");
+                }
+            }
+
+            // 2. 删除新增文件
+            foreach (var file in newFiles)
+            {
+                try
+                {
+                    if (File.Exists(file))
+                    {
+                        File.Delete(file);
+                        Console.WriteLine($"  [回滚] 删除新增: {Path.GetFileName(file)}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"  [回滚警告] 删除失败 {Path.GetFileName(file)}: {ex.Message}");
+                }
+            }
+
+            // 3. 清理 .download 临时文件（精确清理本次更新的文件）
+            try
+            {
+                foreach (var item in updateItems)
+                {
+                    string tempFile = item.FilePath + ".download";
+                    if (File.Exists(tempFile))
+                        File.Delete(tempFile);
+                }
+            }
+            catch { }
+
+            // 4. 删除备份目录
+            try
+            {
+                if (Directory.Exists(BackupDir))
+                    Directory.Delete(BackupDir, true);
+            }
+            catch { }
+
+            Console.WriteLine("[!] 回滚完成");
+        }
+
+        private static void UpdateVerIni()
+        {
+            try
+            {
+                string path = Path.GetFullPath(verFile);
+                if (!File.Exists(path)) return;
+
+                var lines = File.ReadAllLines(path).ToList();
+                bool updated = false;
+                for (int i = 0; i < lines.Count; i++)
+                {
+                    if (lines[i].StartsWith("ver="))
+                    {
+                        lines[i] = $"ver={R_ver}";
+                        updated = true;
                         break;
                     }
-                    if(RemoteFailure)
-                    {
-                        goto Spare;
-                    }
-                    FileDownloadAddress = AlternativeDomainName + url;
-                    Console.WriteLine($"从主服务器获取更新失败，尝试从备用服务器获取....");
-                    RemoteFailure = true;
-                    Spare: //备用服务器下载
-                    try
-                    {
-                        
-                        var config = new AmazonS3Config() { ServiceURL = endpoint, MaxErrorRetry = 2, Timeout = TimeSpan.FromSeconds(20).Add(TimeSpan.FromSeconds(Time)) };
-                        var ossClient = new AmazonS3Client(AKID, AKSecret, config);
-                        string FileKey = url.Substring(1, url.Length - 1);
-                        using GetObjectResponse response = ossClient.GetObjectAsync(Bucket, FileKey).Result;
-                        response.WriteResponseStreamToFileAsync(outputPath, false, new System.Threading.CancellationToken()).Wait();
-                        return true;
-                    }
-                    catch (Exception ex)
-                    {
-                        error_count++;
-                        Console.WriteLine($"出现网络错误1，进行重试");
-
-                    }
                 }
-                else
+                if (updated)
                 {
-                    FileDownloadAddress = MainDomainName + url;
-                    try
-                    {
-                        HttpClient _httpClient = new HttpClient();
-                        _httpClient.Timeout = new TimeSpan(0, 0, 10).Add(TimeSpan.FromSeconds(Time));
-                        _httpClient.DefaultRequestHeaders.Referrer = new Uri("https://update5.ddtv.pro");
-                        using var response = _httpClient.GetAsync(FileDownloadAddress, HttpCompletionOption.ResponseHeadersRead).Result;
-                        response.EnsureSuccessStatusCode();
-                        using var output = new FileStream(outputPath, FileMode.Create);
-                        using var contentStream = response.Content.ReadAsStreamAsync().Result;
-                        contentStream.CopyTo(output);
-                        return true;
-                    }
-                    catch (WebException webex)
-                    {
-                        error_count++;
-                        switch (webex.Status)
-                        {
-                            case WebExceptionStatus.Timeout:
-                                Console.WriteLine($"下载文件超时:{FileDownloadAddress}");
-                                break;
+                    File.WriteAllLines(path, lines);
+                    Console.WriteLine($"已更新版本号文件: {R_ver}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"更新版本号文件失败: {ex.Message}");
+            }
+        }
 
-                            default:
-                                Console.WriteLine($"网络错误，请检查网络状况或者代理设置...开始重试.....");
-                                break;
-                        }
-                    }
-                    catch (Exception ex)
+        private static void StartMainProgram()
+        {
+            if (OperatingSystem.IsWindows())
+            {
+                try
+                {
+                    if (type.Contains("DDTV-Server"))
                     {
-                        error_count++;
-                        Console.WriteLine($"出现网络错误，错误详情：{ex.ToString()}\r\n\r\n===========执行重试，如果没同一个文件重复提示错误，则表示重试成功==============\r\n");
-
+                        Process.Start("../Server.exe");
+                        return;
+                    }
+                    else if (type.Contains("DDTV-Client"))
+                    {
+                        Process.Start("../Client.exe");
+                        return;
+                    }
+                    else if (type.Contains("DDTV-Desktop"))
+                    {
+                        Process.Start("../Desktop.exe");
+                        return;
                     }
                 }
-
-                Thread.Sleep(1000);
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"启动主程序失败: {ex.Message}");
+                }
             }
-            return false;
+            Console.Write($"更新DDTV到{type}-{R_ver}完成，请手动启动DDTV");
+            if (Isdocker)
+                Console.WriteLine($"，按任意键继续");
+        }
+
+        private static string FormatBytes(long bytes)
+        {
+            return bytes >= 1L << 30 ? $"{(double)bytes / (1L << 30):F2} GB"
+                : bytes >= 1L << 20 ? $"{(double)bytes / (1L << 20):F2} MB"
+                : bytes >= 1L << 10 ? $"{(double)bytes / (1L << 10):F2} KB"
+                : $"{bytes} Bytes";
+        }
+
+        private class UpdateItem
+        {
+            public string Url { get; set; } = "";
+            public string FileName { get; set; } = "";
+            public string FilePath { get; set; } = "";
+            public long Size { get; set; }
+            public string Md5 { get; set; } = "";
         }
 
         //更新桶的只读ak

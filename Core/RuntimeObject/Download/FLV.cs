@@ -41,8 +41,8 @@ namespace Core.RuntimeObject.Download
                     ChunkCount = 1, // 下载文件的部分数量，默认值为1
                     ParallelDownload = false, // 是否并行下载文件的各个部分，默认值为false
                     MaxTryAgainOnFailure=3, //最大失败次数   
-                    Timeout = 3000,
-
+                    HttpClientTimeout = 3000,
+                    DownloadFileExtension = "", // 禁用 .download 临时后缀，直接写入目标文件
                 };
                 downloadOpt.RequestConfiguration = new RequestConfiguration()
                 {
