@@ -27,7 +27,7 @@ namespace Core.RuntimeObject.Download
                 
                 InitializeDownload(card,RoomCardClass.TaskType.FLV_AVC);
                 long roomId = card.RoomId;
-                File = $"{Config.Core_RunConfig._RecFileDirectory}{Core.Tools.KeyCharacterReplacement.ReplaceKeyword($"{Config.Core_RunConfig._DefaultLiverFolderName}/{Core.Config.Core_RunConfig._DefaultDataFolderName}{(string.IsNullOrEmpty(Core.Config.Core_RunConfig._DefaultDataFolderName)?"":"/")}{Config.Core_RunConfig._DefaultFileName}",DateTime.Now,card.UID)}_original.flv";
+                File = $"{Config.Core_RunConfig._RecFileDirectory}{Core.Tools.KeyCharacterReplacement.ReplaceKeyword($"{Config.Core_RunConfig._DefaultLiverFolderName}/{Core.Config.Core_RunConfig._DefaultDataFolderName}{(string.IsNullOrEmpty(Core.Config.Core_RunConfig._DefaultDataFolderName)?"":"/")}{Config.Core_RunConfig._DefaultFileName}",DateTime.Now,card.UID)}_original";
                 card.DownInfo.DownloadFileList.CurrentOperationVideoFile = string.Empty;
                 CreateDirectoryIfNotExists(File.Substring(0, File.LastIndexOf('/')));
                 Thread.Sleep(5);
@@ -42,7 +42,7 @@ namespace Core.RuntimeObject.Download
                     ParallelDownload = false, // 是否并行下载文件的各个部分，默认值为false
                     MaxTryAgainOnFailure=3, //最大失败次数   
                     HttpClientTimeout = 3000,
-                    DownloadFileExtension = "", // 禁用 .download 临时后缀，直接写入目标文件
+                    DownloadFileExtension = ".flv", // 禁用 .download 临时后缀，直接写入目标文件
                 };
                 downloadOpt.RequestConfiguration = new RequestConfiguration()
                 {

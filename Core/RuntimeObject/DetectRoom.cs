@@ -327,7 +327,15 @@ namespace Core.RuntimeObject
                     {
                         continue;
                     }
-                    if (LiveInvoke.Card.live_status_start_event && LiveInvoke.Card.live_status.Value == 1)
+                    bool shouldTrigger = LiveInvoke.Card.live_status_start_event && LiveInvoke.Card.live_status.Value == 1;
+
+                    // 兜底：如果是启动后第一次全局检测，房间已经开播且设置了自动录制，强制触发
+                    if (!shouldTrigger && IsFirst && LiveInvoke.Card.live_status.Value == 1 && LiveInvoke.Card.IsAutoRec)
+                    {
+                        shouldTrigger = true;
+                    }
+
+                    if (shouldTrigger)
                     {
                         LiveInvoke.Card.live_status_start_event = false;
                         LiveStart?.Invoke(new List<Detect.TriggerType>() { Detect.TriggerType.RegularTasks }, LiveInvoke);
