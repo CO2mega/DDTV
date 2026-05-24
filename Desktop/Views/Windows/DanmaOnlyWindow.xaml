@@ -18,7 +18,7 @@
 
 
 
-        <ui:ListView Grid.Row="1" Margin="0,0,0,0" Name="DanmaView" ItemsSource="{Binding DanmaCollection}" SelectionMode="Single" Background="{x:Null}" BorderBrush="{x:Null}" ContextMenuOpening="DanmaView_ContextMenuOpening">
+        <ui:ListView Grid.Row="1" Margin="0,0,0,0" Name="DanmaView" ItemsSource="{Binding DanmaCollection}" SelectionMode="Single" Background="{x:Null}" BorderBrush="{x:Null}" ContextMenuOpening="DanmaView_ContextMenuOpening" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
             <ui:ListView.ContextMenu>
                 <ContextMenu>
                     <MenuItem Header="复制" Click="CopyMenuItem_Click"/>
