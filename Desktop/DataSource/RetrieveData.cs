@@ -7,10 +7,20 @@ using System.Windows;
 
 namespace Desktop.DataSource
 {
+    /// <summary>
+    /// Desktop 层的数据拉取入口，主要负责把 Core/远程 API 的数据同步到 UI 上
+    /// </summary>
     internal class RetrieveData
     {
+        /// <summary>
+        /// 房间卡片相关的数据操作，包括拉取、排序、更新
+        /// </summary>
         public class UI_RoomCards
         {
+            /// <summary>
+            /// 刷新房间卡片列表。先从 Core（或远程）拿数据，再和本地 UI 集合做增量同步。
+            /// 避免直接 Clear 整个列表导致闪烁，采用 diff 更新的方式。
+            /// </summary>
             public static void RefreshRoomCards()
             {
                 if (DataPage.CardsCollection == null)
@@ -20,6 +30,7 @@ namespace Desktop.DataSource
 
                 Core.RuntimeObject._Room.Overview.CardData Cards = new();
 
+                // 判断走远程接口还是直接调本地 Core
                 if (Core.Config.Core_RunConfig._DesktopRemoteServer || Core.Config.Core_RunConfig._LocalHTTPMode)
                 {
                     Dictionary<string, string> dir = new Dictionary<string, string>();
@@ -62,6 +73,7 @@ namespace Desktop.DataSource
 
                 Application.Current.Dispatcher.Invoke(() =>
                 {
+                    // 根据总数算一下需要多少页
                     int pg = (Cards.total / 102) + (Cards.total % 102 > 0 ? 1 : 0);
                     if (DataPage.PageCount != pg)
                     {
@@ -69,6 +81,7 @@ namespace Desktop.DataSource
                         DataPage.UpdatePageCount(DataPage.PageCount);
                     }
 
+                    // 先 diff 出本地有、但服务端已经删掉的房间，从 UI 里移除
                     List<long> _uid_Web = new List<long>();
                     foreach (var item in Cards.completeInfoList)
                     {
@@ -85,11 +98,14 @@ namespace Desktop.DataSource
                         Views.Pages.DataPage.CardsCollection.Remove(Views.Pages.DataPage.CardsCollection.FirstOrDefault(i => i.Uid == item));
                     }
 
+                    // 遍历服务端返回的列表，逐个更新或插入
+                    // 顺序已经在 Core 层排好了，这里只需要保证插入位置正确即可
                     foreach (var item in Cards.completeInfoList)
                     {
                         var card = Views.Pages.DataPage.CardsCollection.FirstOrDefault(i => i.Uid == item.uid);
                         if (card != null && card.Uid != 0)
                         {
+                            // 有变化才更新，减少无意义的属性通知
                             if (
                                 card.Title != item.roomInfo.title
                                 || card.Live_Status != item.roomInfo.liveStatus
@@ -104,55 +120,102 @@ namespace Desktop.DataSource
                                 )
                             {
                                 DataCard dataCard = CreateDataCard(item);
-                                int index = Views.Pages.DataPage.CardsCollection.IndexOf(card);
-                                Views.Pages.DataPage.CardsCollection[index] = dataCard;
+
+                                // 判断排序相关的 key 有没有变（录制/直播/自动录制/提醒）
+                                // 如果变了，不能只改属性，必须挪位置才能保证顺序正确
+                                bool sortKeyChanged = card.IsDownload != dataCard.IsDownload
+                                                   || card.Live_Status != dataCard.Live_Status
+                                                   || card.IsRec != dataCard.IsRec
+                                                   || card.IsRemind != dataCard.IsRemind;
+
+                                if (sortKeyChanged)
+                                {
+                                    Views.Pages.DataPage.CardsCollection.Remove(card);
+                                    InsertCardWithCorrectOrder(dataCard);
+                                }
+                                else
+                                {
+                                    int index = Views.Pages.DataPage.CardsCollection.IndexOf(card);
+                                    Views.Pages.DataPage.CardsCollection[index] = dataCard;
+                                }
                             }
                         }
                         else
                         {
+                            // 本地没有，是新房间，按规则插到对应位置
                             DataCard dataCard = CreateDataCard(item);
-                            if (dataCard.IsDownload)
-                            {
-                                for (int i = 0; i < DataPage.CardsCollection.Count(); i++)
-                                {
-                                    if (!DataPage.CardsCollection[i].IsDownload)
-                                    {
-                                        Views.Pages.DataPage.CardsCollection.Insert(i, dataCard);
-                                        break;
-                                    }
-                                }
-                            }
-                            else if (dataCard.IsRec)
-                            {
-                                for (int i = 0; i < DataPage.CardsCollection.Count(); i++)
-                                {
-                                    if (!DataPage.CardsCollection[i].IsRec)
-                                    {
-                                        Views.Pages.DataPage.CardsCollection.Insert(i, dataCard);
-                                        break;
-                                    }
-                                }
-                            }
-                            else if (dataCard.IsRemind)
-                            {
-                                for (int i = 0; i < DataPage.CardsCollection.Count(); i++)
-                                {
-                                    if (!DataPage.CardsCollection[i].IsRemind)
-                                    {
-                                        Views.Pages.DataPage.CardsCollection.Insert(i, dataCard);
-                                        break;
-                                    }
-                                }
-                            }
-                            if(!Views.Pages.DataPage.CardsCollection.Contains(dataCard))
-                            {
-                                Views.Pages.DataPage.CardsCollection.Add(dataCard);
-                            }
+                            InsertCardWithCorrectOrder(dataCard);
                         }
                     }
                 });
             }
 
+            /// <summary>
+            /// 按优先级把卡片插到正确位置。
+            /// 顺序和 Core 层的 GetCardListClone 保持一致：
+            /// 录制中 > 正在直播 > 开了自动录制 > 开了提醒 > 其他
+            /// </summary>
+            private static void InsertCardWithCorrectOrder(DataCard dataCard)
+            {
+                // 1. 录制中：插到第一个非录制中的前面
+                if (dataCard.IsDownload)
+                {
+                    for (int i = 0; i < DataPage.CardsCollection.Count; i++)
+                    {
+                        if (!DataPage.CardsCollection[i].IsDownload)
+                        {
+                            Views.Pages.DataPage.CardsCollection.Insert(i, dataCard);
+                            return;
+                        }
+                    }
+                }
+                // 2. 正在直播（但没在录制）：插到第一个不在直播的卡片前面
+                else if (dataCard.Live_Status)
+                {
+                    for (int i = 0; i < DataPage.CardsCollection.Count; i++)
+                    {
+                        if (!DataPage.CardsCollection[i].IsDownload && !DataPage.CardsCollection[i].Live_Status)
+                        {
+                            Views.Pages.DataPage.CardsCollection.Insert(i, dataCard);
+                            return;
+                        }
+                    }
+                }
+                // 3. 没开播但开了自动录制
+                else if (dataCard.IsRec)
+                {
+                    for (int i = 0; i < DataPage.CardsCollection.Count; i++)
+                    {
+                        if (!DataPage.CardsCollection[i].IsDownload && !DataPage.CardsCollection[i].Live_Status && !DataPage.CardsCollection[i].IsRec)
+                        {
+                            Views.Pages.DataPage.CardsCollection.Insert(i, dataCard);
+                            return;
+                        }
+                    }
+                }
+                // 4. 只开了提醒
+                else if (dataCard.IsRemind)
+                {
+                    for (int i = 0; i < DataPage.CardsCollection.Count; i++)
+                    {
+                        if (!DataPage.CardsCollection[i].IsDownload && !DataPage.CardsCollection[i].Live_Status && !DataPage.CardsCollection[i].IsRec && !DataPage.CardsCollection[i].IsRemind)
+                        {
+                            Views.Pages.DataPage.CardsCollection.Insert(i, dataCard);
+                            return;
+                        }
+                    }
+                }
+
+                // 上面都没匹配到（比如集合为空，或者所有卡片优先级都比当前高），直接放末尾
+                if (!Views.Pages.DataPage.CardsCollection.Contains(dataCard))
+                {
+                    Views.Pages.DataPage.CardsCollection.Add(dataCard);
+                }
+            }
+
+            /// <summary>
+            /// 把 Core 返回的原始数据转成 UI 用的 DataCard
+            /// </summary>
             private static DataCard CreateDataCard(Core.RuntimeObject._Room.Overview.CardData.CompleteInfo item)
             {
                 long liveSeconds = new DateTimeOffset(DateTime.Now).ToUnixTimeSeconds() - item.roomInfo.liveTime;
@@ -178,6 +241,9 @@ namespace Desktop.DataSource
             }
         }
 
+        /// <summary>
+        /// 房间配置修改，根据当前模式决定走远程 HTTP 还是本地 Core 调用
+        /// </summary>
         public class RoomInfo
         {
             public static void ModifyRoomSettings(long uid, bool IsAutoRec, bool IsRecDanmu, bool IsRemind)
