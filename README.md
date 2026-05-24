@@ -1,7 +1,5 @@
 # 走过路过留个star吧 :)
 
-[![Stargazers over time](https://starchart.cc/CHKZL/DDTV.svg)](https://starchart.cc/CHKZL/DDTV)
-
 
 
 # DDTV
