@@ -129,12 +129,15 @@ namespace Update
                     return;
                 }
 
+                // 读取配置
+                var (parallelCount, chunkCount) = LoadConfig();
+
                 // Downloader 5.5.0 配置
                 var downloadOpt = new DownloadConfiguration()
                 {
-                    ChunkCount = 2,
+                    ChunkCount = chunkCount,
                     ParallelDownload = true,
-                    ParallelCount = 2,
+                    ParallelCount = chunkCount,
                     MaxTryAgainOnFailure = 2,
                     BlockTimeout = 5000,
                     HttpClientTimeout = 30000,
@@ -148,16 +151,16 @@ namespace Update
                 };
 
                 // 进度渲染
-                var renderer = new ConsoleProgressRenderer(8);
+                var renderer = new ConsoleProgressRenderer(parallelCount);
                 long totalBytes = updateList.Sum(x => x.Size);
                 renderer.Initialize(updateList.Count, totalBytes, type, Isdev ? "dev" : "release", ver, R_ver);
 
                 // 并发下载
-                var semaphore = new SemaphoreSlim(8);
+                var semaphore = new SemaphoreSlim(parallelCount);
                 var cts = new CancellationTokenSource();
                 var tasks = new List<Task<bool>>();
                 var slotLock = new object();
-                var slotOccupied = new bool[8];
+                var slotOccupied = new bool[parallelCount];
                 int completedCount = 0;
                 long completedBytes = 0;
 
@@ -182,7 +185,7 @@ namespace Update
                             // 分配槽位
                             lock (slotLock)
                             {
-                                for (int i = 0; i < 8; i++)
+                                for (int i = 0; i < parallelCount; i++)
                                 {
                                     if (!slotOccupied[i])
                                     {
@@ -337,6 +340,37 @@ namespace Update
                     Isdocker = true;
                 }
             }
+        }
+
+        private static (int parallelCount, int chunkCount) LoadConfig()
+        {
+            string configPath = "./config.ini";
+            int parallelCount = 8;
+            int chunkCount = 2;
+            try
+            {
+                if (File.Exists(configPath))
+                {
+                    foreach (var line in File.ReadAllLines(configPath))
+                    {
+                        var trimmed = line.Trim();
+                        if (trimmed.StartsWith("parallel_count="))
+                        {
+                            if (int.TryParse(trimmed.Split('=')[1].Trim(), out int pc))
+                                parallelCount = pc;
+                        }
+                        else if (trimmed.StartsWith("chunk_count="))
+                        {
+                            if (int.TryParse(trimmed.Split('=')[1].Trim(), out int cc))
+                                chunkCount = cc;
+                        }
+                    }
+                }
+            }
+            catch { }
+            parallelCount = Math.Clamp(parallelCount, 1, 16);
+            chunkCount = Math.Clamp(chunkCount, 1, 16);
+            return (parallelCount, chunkCount);
         }
 
         public static bool checkVersion()
@@ -511,8 +545,7 @@ namespace Update
                     double percent = e.ProgressPercentage;
                     long received = e.ReceivedBytesSize;
                     double speed = e.BytesPerSecondSpeed;
-                    string speedStr = speed > 0 ? $"{FormatBytes((long)speed)}/s" : "";
-                    renderer.UpdateSlotProgress(slot, percent, received, speedStr);
+                    renderer.UpdateSlotProgress(slot, percent, received, speed);
                 };
 
                 await downloader.DownloadFileTaskAsync(url, outputPath);
