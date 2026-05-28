@@ -1,11 +1,12 @@
 ﻿using Core.LogModule;
-using Downloader;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
-using System.Net;
+using System.Net.Http;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using static Core.RuntimeObject.Download.Basics;
 
@@ -24,115 +25,194 @@ namespace Core.RuntimeObject.Download
             string File = string.Empty;
             await Task.Run(async () =>
             {
-                
-                InitializeDownload(card,RoomCardClass.TaskType.FLV_AVC);
+                InitializeDownload(card, RoomCardClass.TaskType.FLV_AVC);
                 long roomId = card.RoomId;
-                File = $"{Config.Core_RunConfig._RecFileDirectory}{Core.Tools.KeyCharacterReplacement.ReplaceKeyword($"{Config.Core_RunConfig._DefaultLiverFolderName}/{Core.Config.Core_RunConfig._DefaultDataFolderName}{(string.IsNullOrEmpty(Core.Config.Core_RunConfig._DefaultDataFolderName)?"":"/")}{Config.Core_RunConfig._DefaultFileName}",DateTime.Now,card.UID)}_original";
+                File = $"{Config.Core_RunConfig._RecFileDirectory}{Core.Tools.KeyCharacterReplacement.ReplaceKeyword($"{Config.Core_RunConfig._DefaultLiverFolderName}/{Core.Config.Core_RunConfig._DefaultDataFolderName}{(string.IsNullOrEmpty(Core.Config.Core_RunConfig._DefaultDataFolderName) ? "" : "/")}{Config.Core_RunConfig._DefaultFileName}", DateTime.Now, card.UID)}_original";
                 card.DownInfo.DownloadFileList.CurrentOperationVideoFile = string.Empty;
                 CreateDirectoryIfNotExists(File.Substring(0, File.LastIndexOf('/')));
                 Thread.Sleep(5);
-                #region 实例化下载对象
                 Stopwatch stopWatch = new Stopwatch();
                 stopWatch.Start();
-                //本地Task下载的文件大小
                 long DownloadFileSizeForThisTask = 0;
-                var downloadOpt = new DownloadConfiguration()
+                long startLiveTime = card.live_time.Value;
+                List<(long size, DateTime time)> speedValues = new();
+
+                void UpdateSpeed(long downloadSizeForThisCycle)
                 {
-                    ChunkCount = 1, // 下载文件的部分数量，默认值为1
-                    ParallelDownload = false, // 是否并行下载文件的各个部分，默认值为false
-                    MaxTryAgainOnFailure=3, //最大失败次数   
-                    HttpClientTimeout = 3000,
-                    DownloadFileExtension = ".flv", // 禁用 .download 临时后缀，直接写入目标文件
-                };
-                downloadOpt.RequestConfiguration = new RequestConfiguration()
+                    speedValues.Add((downloadSizeForThisCycle, DateTime.Now));
+                    while (speedValues.Count >= 10)
+                    {
+                        speedValues.RemoveAt(0);
+                    }
+                    if (speedValues.Count > 1)
+                    {
+                        card.DownInfo.RealTimeDownloadSpe = (speedValues.Sum(x => x.size) / DateTime.Now.Subtract(speedValues[0].time).TotalMilliseconds) * 1000;
+                    }
+                    else
+                    {
+                        card.DownInfo.RealTimeDownloadSpe = 0;
+                    }
+                    card.DownInfo.DownloadSize += downloadSizeForThisCycle;
+                }
+
+                using var client = new HttpClient(new HttpClientHandler
                 {
-                    Accept = "*/*",
-                    Headers = new WebHeaderCollection(), // { 你的自定义头 }
-                    ContentType = "application/x-www-form-urlencoded",
-                    KeepAlive = true, // 默认值为false
-                    ProtocolVersion = HttpVersion.Version11, // 默认值为HTTP 1.1
-                    Referer="https://www.bilibili.com/",
-                    UserAgent = Config.Core_RunConfig._HTTP_UA,
+                    ServerCertificateCustomValidationCallback = (sender, cert, chain, sslPolicyErrors) => true,
+                    AllowAutoRedirect = true,
+                })
+                {
+                    Timeout = TimeSpan.FromSeconds(100),
                 };
+                client.DefaultRequestHeaders.Add("Accept", "*/*");
+                client.DefaultRequestHeaders.Add("Referer", "https://www.bilibili.com/");
+                client.DefaultRequestHeaders.Add("User-Agent", Config.Core_RunConfig._HTTP_UA);
                 if (RuntimeObject.Account.AccountInformation.State)
                 {
-                    downloadOpt.RequestConfiguration.Headers.Add("Cookie", RuntimeObject.Account.AccountInformation.strCookies);
+                    client.DefaultRequestHeaders.Add("Cookie", RuntimeObject.Account.AccountInformation.strCookies);
                 }
-                var downloader = new DownloadService(downloadOpt);
-                // 提供有关下载进度的任何信息，
-                // 如总块的进度百分比、总速度、
-                // 平均速度、总接收字节数和接收字节数组以进行实时流。
-                downloader.DownloadProgressChanged += (s, e) =>
-                {
-                    card.DownInfo.RealTimeDownloadSpe = e.AverageBytesPerSecondSpeed;
-                    card.DownInfo.DownloadSize += e.ProgressedByteSize;
-                    DownloadFileSizeForThisTask += e.ProgressedByteSize;
-                    //处理大小限制分割
-                    if (card.RoomCutAccordingToSize > 0 && DownloadFileSizeForThisTask > card.RoomCutAccordingToSize)
-                    {
-                        Log.Info(nameof(DlwnloadHls_avc_flv), $"{card.Name}({card.RoomId})触发房间文件大小分割");
-                        hlsState = DownloadTaskState.Success;
-                        downloader.CancelAsync();
-                    }
 
-                    if (card.RoomCutAccordingToSize == 0 && Config.Core_RunConfig._CutAccordingToSize > 0 && DownloadFileSizeForThisTask > Config.Core_RunConfig._CutAccordingToSize)
-                    {
-                        Log.Info(nameof(DlwnloadHls_avc_flv), $"{card.Name}({card.RoomId})触发全局文件大小分割");
-                        hlsState = DownloadTaskState.Success;
-                        downloader.CancelAsync();
-                    }
-                    //处理时间限制分割
-                    if (card.RoomCutAccordingToTime > 0 && stopWatch.Elapsed.TotalSeconds > card.RoomCutAccordingToTime)
-                    {
-                        Log.Info(nameof(DlwnloadHls_avc_flv), $"{card.Name}({card.RoomId})触发房间时间分割");
-                        hlsState = DownloadTaskState.Success;
-                        downloader.CancelAsync();
-                    }
-
-                    if (card.RoomCutAccordingToTime == 0 && Config.Core_RunConfig._CutAccordingToTime > 0 && stopWatch.Elapsed.TotalSeconds > Config.Core_RunConfig._CutAccordingToTime)
-                    {
-                        Log.Info(nameof(DlwnloadHls_avc_flv), $"{card.Name}({card.RoomId})触发全局时间分割");
-                        hlsState = DownloadTaskState.Success;
-                        downloader.CancelAsync();
-                    }
-                };
-
-                #endregion
                 HostClass hostClass = GetFlvHost_avc(card);
                 string DlwnloadURL = $"{hostClass.host}{hostClass.base_url}{hostClass.uri_name}{hostClass.extra}";
-                //把当前写入文件写入记录
-                string F_S = Config.Core_RunConfig._RecFileDirectory + (Config.Core_RunConfig._RecFileDirectory.EndsWith("/") || Config.Core_RunConfig._RecFileDirectory.EndsWith("\\")?"":"/") + File.Replace(Config.Core_RunConfig._RecFileDirectory, "").Replace("\\", "/");
+                string F_S = Config.Core_RunConfig._RecFileDirectory + (Config.Core_RunConfig._RecFileDirectory.EndsWith("/") || Config.Core_RunConfig._RecFileDirectory.EndsWith("\\") ? "" : "/") + File.Replace(Config.Core_RunConfig._RecFileDirectory, "").Replace("\\", "/");
                 card.DownInfo.DownloadFileList.CurrentOperationVideoFile = F_S;
-                //下载提示
                 LogDownloadStart(card, "FLV");
-                Task _stopTask = new Task(() =>
+
+                int retryCount = 0;
+                const int maxRetries = 3;
+
+                using (FileStream fs = new FileStream(File, FileMode.Append, FileAccess.Write, FileShare.Read))
                 {
-                    while (true)
+                    while (retryCount < maxRetries)
                     {
-                        Thread.Sleep(200);
-                        if (card.DownInfo.Unmark || card.DownInfo.IsCut)
+                        try
                         {
-                            if (downloader != null && (downloader.Status == DownloadStatus.Running || downloader.Status == DownloadStatus.Created))
+                            using var request = new HttpRequestMessage(HttpMethod.Get, DlwnloadURL);
+                            using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
+                            response.EnsureSuccessStatusCode();
+                            using var stream = await response.Content.ReadAsStreamAsync();
+                            byte[] buffer = new byte[81920];
+
+                            while (true)
                             {
-                                downloader.CancelAsync();
-                                break;
+                                if (card.DownInfo.Unmark || card.DownInfo.IsCut || card.live_time.Value != startLiveTime)
+                                {
+                                    hlsState = CheckAndHandleFile(File, ref card, card.live_time.Value != startLiveTime);
+                                    return;
+                                }
+
+                                if (card.RoomCutAccordingToSize > 0 && DownloadFileSizeForThisTask > card.RoomCutAccordingToSize)
+                                {
+                                    Log.Info(nameof(DlwnloadHls_avc_flv), $"{card.Name}({card.RoomId})触发房间文件大小分割");
+                                    hlsState = DownloadTaskState.Success;
+                                    return;
+                                }
+                                if (card.RoomCutAccordingToSize == 0 && Config.Core_RunConfig._CutAccordingToSize > 0 && DownloadFileSizeForThisTask > Config.Core_RunConfig._CutAccordingToSize)
+                                {
+                                    Log.Info(nameof(DlwnloadHls_avc_flv), $"{card.Name}({card.RoomId})触发全局文件大小分割");
+                                    hlsState = DownloadTaskState.Success;
+                                    return;
+                                }
+                                if (card.RoomCutAccordingToTime > 0 && stopWatch.Elapsed.TotalSeconds > card.RoomCutAccordingToTime)
+                                {
+                                    Log.Info(nameof(DlwnloadHls_avc_flv), $"{card.Name}({card.RoomId})触发房间时间分割");
+                                    hlsState = DownloadTaskState.Success;
+                                    return;
+                                }
+                                if (card.RoomCutAccordingToTime == 0 && Config.Core_RunConfig._CutAccordingToTime > 0 && stopWatch.Elapsed.TotalSeconds > Config.Core_RunConfig._CutAccordingToTime)
+                                {
+                                    Log.Info(nameof(DlwnloadHls_avc_flv), $"{card.Name}({card.RoomId})触发全局时间分割");
+                                    hlsState = DownloadTaskState.Success;
+                                    return;
+                                }
+
+                                int read = await stream.ReadAsync(buffer, 0, buffer.Length);
+                                if (read == 0)
+                                {
+                                    break;
+                                }
+
+                                await fs.WriteAsync(buffer, 0, read);
+                                DownloadFileSizeForThisTask += read;
+                                UpdateSpeed(read);
+                            }
+
+                            if (!RoomInfo.GetLiveStatus(card.RoomId))
+                            {
+                                hlsState = DownloadTaskState.StopLive;
+                                return;
+                            }
+
+                            retryCount++;
+                            if (retryCount < maxRetries)
+                            {
+                                int delayMs = (int)Math.Pow(2, retryCount) * 1000;
+                                Log.Info(nameof(DlwnloadHls_avc_flv), $"[{card.Name}({card.RoomId})]FLV流意外中断，{delayMs}ms后第{retryCount}次重试");
+                                Thread.Sleep(delayMs);
+                                hostClass = GetFlvHost_avc(card);
+                                DlwnloadURL = $"{hostClass.host}{hostClass.base_url}{hostClass.uri_name}{hostClass.extra}";
+                                continue;
                             }
                         }
-                        if (downloader.Status == DownloadStatus.Stopped || downloader.Status == DownloadStatus.Completed || downloader.Status == DownloadStatus.Failed)
+                        catch (HttpRequestException ex)
                         {
+                            retryCount++;
+                            if (retryCount < maxRetries)
+                            {
+                                int delayMs = (int)Math.Pow(2, retryCount) * 1000;
+                                Log.Warn(nameof(DlwnloadHls_avc_flv), $"[{card.Name}({card.RoomId})]FLV下载HTTP错误，{delayMs}ms后第{retryCount}次重试：{ex.Message}");
+                                Thread.Sleep(delayMs);
+                                hostClass = GetFlvHost_avc(card);
+                                DlwnloadURL = $"{hostClass.host}{hostClass.base_url}{hostClass.uri_name}{hostClass.extra}";
+                                continue;
+                            }
+                            Log.Error(nameof(DlwnloadHls_avc_flv), $"[{card.Name}({card.RoomId})]FLV下载HTTP错误，重试耗尽", ex);
+                            break;
+                        }
+                        catch (IOException ex)
+                        {
+                            retryCount++;
+                            if (retryCount < maxRetries)
+                            {
+                                int delayMs = (int)Math.Pow(2, retryCount) * 1000;
+                                Log.Warn(nameof(DlwnloadHls_avc_flv), $"[{card.Name}({card.RoomId})]FLV下载IO错误，{delayMs}ms后第{retryCount}次重试：{ex.Message}");
+                                Thread.Sleep(delayMs);
+                                hostClass = GetFlvHost_avc(card);
+                                DlwnloadURL = $"{hostClass.host}{hostClass.base_url}{hostClass.uri_name}{hostClass.extra}";
+                                continue;
+                            }
+                            Log.Error(nameof(DlwnloadHls_avc_flv), $"[{card.Name}({card.RoomId})]FLV下载IO错误，重试耗尽", ex);
+                            break;
+                        }
+                        catch (TaskCanceledException ex) when (ex.CancellationToken == default || !ex.CancellationToken.IsCancellationRequested)
+                        {
+                            retryCount++;
+                            if (retryCount < maxRetries)
+                            {
+                                int delayMs = (int)Math.Pow(2, retryCount) * 1000;
+                                Log.Warn(nameof(DlwnloadHls_avc_flv), $"[{card.Name}({card.RoomId})]FLV下载超时，{delayMs}ms后第{retryCount}次重试");
+                                Thread.Sleep(delayMs);
+                                hostClass = GetFlvHost_avc(card);
+                                DlwnloadURL = $"{hostClass.host}{hostClass.base_url}{hostClass.uri_name}{hostClass.extra}";
+                                continue;
+                            }
+                            Log.Error(nameof(DlwnloadHls_avc_flv), $"[{card.Name}({card.RoomId})]FLV下载超时，重试耗尽");
+                            break;
+                        }
+                        catch (Exception ex)
+                        {
+                            Log.Error(nameof(DlwnloadHls_avc_flv), $"[{card.Name}({card.RoomId})]FLV下载发生未预料错误", ex);
                             break;
                         }
                     }
-                });
-                _stopTask.Start();
-                await downloader.DownloadFileTaskAsync(DlwnloadURL, File);
+                }
+
                 hlsState = CheckAndHandleFile(File, ref card);
                 try
                 {
                     stopWatch.Stop();
                 }
                 catch (Exception)
-                {}
+                { }
             });
             return (hlsState, File);
         }
