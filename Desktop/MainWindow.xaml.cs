@@ -81,8 +81,8 @@ namespace Desktop
         /// </summary>
         public void Init()
         {
-            //设置房间卡片列表页定时任务（首次10ms立即触发，之后每2秒）
-            DataPage.Timer_DataPage = new System.Threading.Timer(DataPage.Refresher, null, 10, 2000);
+            //设置房间卡片列表页定时任务（首次10ms立即触发，之后每1秒）
+            DataPage.Timer_DataPage = new System.Threading.Timer(DataPage.Refresher, null, 10, 1000);
             //设置登录失效事件（失效后弹出扫码框）
             DataSource.LoginStatus.LoginFailureEvent += LoginStatus_LoginFailureEvent;
             //设置登录态检测定时任务
