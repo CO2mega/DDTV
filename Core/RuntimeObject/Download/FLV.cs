@@ -35,6 +35,7 @@ namespace Core.RuntimeObject.Download
                 stopWatch.Start();
                 long DownloadFileSizeForThisTask = 0;
                 long startLiveTime = card.live_time.Value;
+                string originalTitle = card.Title.Value;
                 List<(long size, DateTime time)> speedValues = new();
 
                 void UpdateSpeed(long downloadSizeForThisCycle)
@@ -94,6 +95,13 @@ namespace Core.RuntimeObject.Download
 
                             while (true)
                             {
+                                if (Config.Core_RunConfig._SplitOnTitleChange && !string.IsNullOrEmpty(originalTitle) && originalTitle != card.Title.Value)
+                                {
+                                    Log.Info(nameof(DlwnloadHls_avc_flv), $"[{card.Name}({card.RoomId})]检测到直播间标题变化[{originalTitle}]→[{card.Title.Value}]，进行切割处理");
+                                    hlsState = DownloadTaskState.Success;
+                                    return;
+                                }
+
                                 if (card.DownInfo.Unmark || card.DownInfo.IsCut || card.live_time.Value != startLiveTime)
                                 {
                                     hlsState = CheckAndHandleFile(File, ref card, card.live_time.Value != startLiveTime);

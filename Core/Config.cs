@@ -1615,6 +1615,25 @@ namespace Core
                 }
             }
 
+            private static string SplitOnTitleChange = "false";
+            /// <summary>
+            /// 直播间标题变更时自动切割视频文件，以新标题保存
+            /// 默认值：false
+            /// </summary>
+            public bool _SplitOnTitleChange
+            {
+                get => ParseBool(SplitOnTitleChange);
+                set
+                {
+                    if (value.ToString() != SplitOnTitleChange)
+                    {
+                        SplitOnTitleChange = value.ToString();
+                        OnPropertyChanged();
+                        ModifyConfig(value);
+                    }
+                }
+            }
+
             private static string DesktopWidth = "1250";
             /// <summary>
             /// 桌面版最后的宽度

@@ -429,6 +429,11 @@ public partial class SettingsPage
         {
             Config.Core_RunConfig.CutAccordingToTime_For_ComboBox = CutAccordingToTime_For_ComboBox.SelectedIndex;
         }
+        //标题变化自动分割
+        if (Config.Core_RunConfig._SplitOnTitleChange != SplitOnTitleChange_ToggleSwitch.IsChecked)
+        {
+            Config.Core_RunConfig._SplitOnTitleChange = (bool)SplitOnTitleChange_ToggleSwitch.IsChecked;
+        }
         //保存直播间封面
         if (Config.Core_RunConfig._SaveCover != SaveCover_SwitchControl.IsChecked)
         {

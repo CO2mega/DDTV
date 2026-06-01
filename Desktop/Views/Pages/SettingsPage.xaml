@@ -693,6 +693,7 @@
                                     <Grid.RowDefinitions>
                                     <RowDefinition Height="Auto" />
                                     <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
                                     </Grid.RowDefinitions>
                                     <ui:CardControl Grid.Row="0" Padding="20,10,20,10" Header="达到设置大小自动分割文件" Icon="{ui:SymbolIcon ScreenCut20}">
                                         <Grid>
@@ -735,6 +736,21 @@
                                                     <ComboBoxItem Content="1个小时" />
                                                     <ComboBoxItem Content="2个小时" />
                                                 </ComboBox>
+                                            </Grid>
+                                        </Grid>
+                                    </ui:CardControl>
+                                    <ui:CardControl Grid.Row="2" Padding="20,10,20,10" Header="检测到直播间标题变化时自动分割文件" Icon="{ui:SymbolIcon TextEditStyle20}">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="Auto" />
+                                                <RowDefinition Height="Auto" />
+                                            </Grid.RowDefinitions>
+                                            <Grid Grid.Column="1" VerticalAlignment="Center"  HorizontalAlignment="Right">
+                                                <ui:ToggleSwitch Name="SplitOnTitleChange_ToggleSwitch" Height="35" IsChecked="{Binding _SplitOnTitleChange, Mode=OneWay}" Grid.Row="0" Grid.RowSpan="2" Grid.Column="1" Margin="0,0,16,0" OffContent="关" OnContent="开" />
                                             </Grid>
                                         </Grid>
                                     </ui:CardControl>

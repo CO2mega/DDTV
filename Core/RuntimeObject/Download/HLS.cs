@@ -97,8 +97,17 @@ namespace Core.RuntimeObject.Download
                     long TrackWidth = 0;
                     long TrackHeight = 0;
                     long ReM3U8TimeCount = (long)stopWatch.Elapsed.TotalSeconds;
+                    string originalTitle = card.Title.Value;
                     while (true)
                     {
+                        //处理标题变更分割
+                        if (Config.Core_RunConfig._SplitOnTitleChange && !string.IsNullOrEmpty(originalTitle) && originalTitle != card.Title.Value)
+                        {
+                            Log.Info(nameof(DlwnloadHls_avc_mp4), $"[{card.Name}({card.RoomId})]检测到直播间标题变化[{originalTitle}]→[{card.Title.Value}]，进行切割处理");
+                            hlsState = DownloadTaskState.Success;
+                            return;
+                        }
+
                         //处理大小限制分割
                         if (card.RoomCutAccordingToSize > 0 && DownloadFileSizeForThisTask > card.RoomCutAccordingToSize)
                         {
