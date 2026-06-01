@@ -31,6 +31,12 @@
                     <Separator/>
                     <MenuItem Header="复制流地址到粘贴板" Icon="{ui:SymbolIcon CopyArrowRight24}" Click="PasteStreamAddress_MenuItem_Click"/>
                     <Separator/>
+                    <MenuItem Header="窗口布局" Icon="{ui:SymbolIcon Grid20}">
+                        <MenuItem Header="九宫格 (3×3)" Click="MenuItem_Layout_3x3_Click"/>
+                        <MenuItem Header="十二宫格 (3×4)" Click="MenuItem_Layout_3x4_Click"/>
+                        <MenuItem Header="主窗口+侧边" Click="MenuItem_Layout_MainSub_Click"/>
+                    </MenuItem>
+                    <Separator/>
                     <MenuItem Header="关闭本窗口" Click="ExitWindow_MenuItem_Click" Icon="{ui:SymbolIcon ArrowExit20}"/>
                 </ContextMenu>
             </Grid.ContextMenu>

@@ -3,6 +3,7 @@ using Core.LiveChat;
 using Core.LogModule;
 using Core.RuntimeObject;
 using Desktop.Models;
+using Desktop.Services;
 using Desktop.Views.Windows.DanMuCanvas.BarrageParameters;
 using LibVLCSharp.Shared;
 using LibVLCSharp.WPF;
@@ -109,6 +110,7 @@ namespace Desktop.Views.Windows
 
             Task.Run(() => InitVlcPlay(uid));
             Task.Run(() => SetClarityMenu());
+            PlayWindowManager.Register(this);
         }
         /// <summary>
         /// 初始化播放器和弹幕渲染Canvas
@@ -428,6 +430,7 @@ namespace Desktop.Views.Windows
             {
                 CloseDanma();
             }
+            PlayWindowManager.Unregister(this);
         }
 
         private DateTime lastClickTime = DateTime.MinValue; // 上次点击的时间
@@ -749,6 +752,21 @@ namespace Desktop.Views.Windows
             _Room.GetCardForUID(roomCard.UID, ref roomCardClass);
             Windows.DanmaOnlyWindow danmaOnlyWindow = new(roomCardClass);
             danmaOnlyWindow.Show();
+        }
+
+        private void MenuItem_Layout_3x3_Click(object sender, RoutedEventArgs e)
+        {
+            PlayWindowManager.Arrange(this, WindowLayoutMode.Grid3x3);
+        }
+
+        private void MenuItem_Layout_3x4_Click(object sender, RoutedEventArgs e)
+        {
+            PlayWindowManager.Arrange(this, WindowLayoutMode.Grid3x4);
+        }
+
+        private void MenuItem_Layout_MainSub_Click(object sender, RoutedEventArgs e)
+        {
+            PlayWindowManager.Arrange(this, WindowLayoutMode.MainAndSub);
         }
 
         private void PasteStreamAddress_MenuItem_Click(object sender, RoutedEventArgs e)

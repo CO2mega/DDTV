@@ -202,5 +202,6 @@ namespace Desktop.Views.Windows
                 TopMostSwitch = true;
             }
         }
+
     }
 }
