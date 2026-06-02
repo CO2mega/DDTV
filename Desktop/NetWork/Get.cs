@@ -16,14 +16,6 @@ namespace Desktop.NetWork
         }
 
         /// <summary>
-        /// 同步GET方法（保留兼容）
-        /// </summary>
-        public static T GetBody<T>(string url, Dictionary<string, string> _dic = null)
-        {
-            return GetBodyAsync<T>(url, _dic).GetAwaiter().GetResult();
-        }
-
-        /// <summary>
         /// 异步GET方法
         /// </summary>
         public static async Task<T> GetBodyAsync<T>(string url, Dictionary<string, string> _dic = null)

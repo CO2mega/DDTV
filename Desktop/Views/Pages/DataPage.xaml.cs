@@ -48,7 +48,7 @@ public partial class DataPage
         Width = (int)CardsItemsControl.ActualWidth;
     }
 
-    public void Init()
+    public async void Init()
     {
         CardsCollection = new ObservableCollection<DataCard>();
         CardsItemsControl.ItemsSource = CardsCollection;
@@ -56,7 +56,14 @@ public partial class DataPage
         PageComboBox.ItemsSource = PageComboBoxItems;
         Add_ImportFromFollowList_Menu();
         // 首次加载立即刷新一次，避免等待 Timer
-        DataSource.RetrieveData.UI_RoomCards.RefreshRoomCards();
+        try
+        {
+            await DataSource.RetrieveData.UI_RoomCards.RefreshRoomCardsAsync();
+        }
+        catch (Exception ex)
+        {
+            Core.LogModule.Log.Error(nameof(Init), "初始化加载房间卡片数据失败", ex);
+        }
     }
 
     /// <summary>
@@ -187,7 +194,19 @@ public partial class DataPage
 
     public static void Refresher(object state)
     {
-        DataSource.RetrieveData.UI_RoomCards.RefreshRoomCards();
+        _ = RefreshRoomCardsSafeAsync();
+    }
+
+    private static async Task RefreshRoomCardsSafeAsync()
+    {
+        try
+        {
+            await DataSource.RetrieveData.UI_RoomCards.RefreshRoomCardsAsync();
+        }
+        catch (Exception ex)
+        {
+            Core.LogModule.Log.Error(nameof(Refresher), "定时刷新房间卡片数据失败", ex);
+        }
     }
 
     private void AddRoomCardForRoomId_Click(object sender, RoutedEventArgs e)

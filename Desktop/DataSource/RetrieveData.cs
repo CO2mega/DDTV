@@ -21,55 +21,57 @@ namespace Desktop.DataSource
             /// 刷新房间卡片列表。先从 Core（或远程）拿数据，再和本地 UI 集合做增量同步。
             /// 避免直接 Clear 整个列表导致闪烁，采用 diff 更新的方式。
             /// </summary>
-            public static void RefreshRoomCards()
+            public static async Task RefreshRoomCardsAsync()
             {
-                if (DataPage.CardsCollection == null)
+                try
                 {
-                    return;
-                }
-
-                Core.RuntimeObject._Room.Overview.CardData Cards = new();
-
-                // 判断走远程接口还是直接调本地 Core
-                if (Core.Config.Core_RunConfig._DesktopRemoteServer || Core.Config.Core_RunConfig._LocalHTTPMode)
-                {
-                    Dictionary<string, string> dir = new Dictionary<string, string>();
-                    if (!string.IsNullOrEmpty(DataPage.screen_name))
+                    if (DataPage.CardsCollection == null)
                     {
-                        dir = new Dictionary<string, string>()
+                        return;
+                    }
+
+                    Core.RuntimeObject._Room.Overview.CardData Cards = new();
+
+                    // 判断走远程接口还是直接调本地 Core
+                    if (Core.Config.Core_RunConfig._DesktopRemoteServer || Core.Config.Core_RunConfig._LocalHTTPMode)
+                    {
+                        Dictionary<string, string> dir = new Dictionary<string, string>();
+                        if (!string.IsNullOrEmpty(DataPage.screen_name))
                         {
-                            {"screen_name",DataPage.screen_name }
-                        };
+                            dir = new Dictionary<string, string>()
+                            {
+                                {"screen_name",DataPage.screen_name }
+                            };
+                        }
+                        else
+                        {
+                            dir = new Dictionary<string, string>()
+                            {
+                                {"quantity","102" },
+                                {"page",DataPage.PageIndex.ToString() },
+                                {"type",DataPage.CardType.ToString() },
+                                {"screen_name","" }
+                            };
+                        }
+                        Cards = await NetWork.Post.PostBody<Core.RuntimeObject._Room.Overview.CardData>($"{Config.Core_RunConfig._DesktopIP}:{Config.Core_RunConfig._DesktopPort}/api/get_rooms/batch_complete_room_information", dir);
                     }
                     else
                     {
-                        dir = new Dictionary<string, string>()
+                        if (!string.IsNullOrEmpty(DataPage.screen_name))
                         {
-                            {"quantity","102" },
-                            {"page",DataPage.PageIndex.ToString() },
-                            {"type",DataPage.CardType.ToString() },
-                            {"screen_name","" }
-                        };
+                            Cards = Core.RuntimeObject._Room.Overview.GetCardOverview(0, 0, Core.RuntimeObject._Room.SearchType.All, DataPage.screen_name);
+                        }
+                        else
+                        {
+                            Cards = Core.RuntimeObject._Room.Overview.GetCardOverview(102, DataPage.PageIndex, (_Room.SearchType)DataPage.CardType);
+                        }
                     }
-                    Cards = NetWork.Post.PostBody<Core.RuntimeObject._Room.Overview.CardData>($"{Config.Core_RunConfig._DesktopIP}:{Config.Core_RunConfig._DesktopPort}/api/get_rooms/batch_complete_room_information", dir).Result;
-                }
-                else
-                {
-                    if (!string.IsNullOrEmpty(DataPage.screen_name))
-                    {
-                        Cards = Core.RuntimeObject._Room.Overview.GetCardOverview(0, 0, Core.RuntimeObject._Room.SearchType.All, DataPage.screen_name);
-                    }
-                    else
-                    {
-                        Cards = Core.RuntimeObject._Room.Overview.GetCardOverview(102, DataPage.PageIndex, (_Room.SearchType)DataPage.CardType);
-                    }
-                }
 
-                if (Cards == null)
-                {
-                    Log.Warn(nameof(RefreshRoomCards), "调用Core的API[batch_complete_room_information]获取房间信息失败，获取到的信息为Null", null, true);
-                    return;
-                };
+                    if (Cards == null)
+                    {
+                        Log.Warn(nameof(RefreshRoomCardsAsync), "调用Core的API[batch_complete_room_information]获取房间信息失败，获取到的信息为Null", null, true);
+                        return;
+                    }
 
                 Application.Current.Dispatcher.Invoke(() =>
                 {
@@ -155,6 +157,11 @@ namespace Desktop.DataSource
                         Views.Pages.DataPage.CardsCollection.RemoveAt(Views.Pages.DataPage.CardsCollection.Count - 1);
                     }
                 });
+                }
+                catch (Exception ex)
+                {
+                    Log.Error(nameof(RefreshRoomCardsAsync), "刷新房间卡片数据时发生异常", ex);
+                }
             }
 
             /// <summary>
@@ -211,7 +218,7 @@ namespace Desktop.DataSource
         /// </summary>
         public class RoomInfo
         {
-            public static void ModifyRoomSettings(long uid, bool IsAutoRec, bool IsRecDanmu, bool IsRemind)
+            public static async Task<bool> ModifyRoomSettingsAsync(long uid, bool IsAutoRec, bool IsRecDanmu, bool IsRemind)
             {
                 if (Core.Config.Core_RunConfig._DesktopRemoteServer || Core.Config.Core_RunConfig._LocalHTTPMode)
                 {
@@ -222,31 +229,29 @@ namespace Desktop.DataSource
                         {"Remind",IsRemind.ToString() },
                         {"RecDanmu",IsRecDanmu.ToString() },
                     };
-                    Task.Run(() =>
+                    if (await NetWork.Post.PostBody<bool>($"{Config.Core_RunConfig._DesktopIP}:{Config.Core_RunConfig._DesktopPort}/api/set_rooms/modify_room_settings", dic))
                     {
-                        if (NetWork.Post.PostBody<bool>($"{Config.Core_RunConfig._DesktopIP}:{Config.Core_RunConfig._DesktopPort}/api/set_rooms/modify_room_settings", dic).Result)
-                        {
-                            Log.Info(nameof(ModifyRoomSettings), "调用Core的API[modify_room_settings]修改房间配置成功");
-                        }
-                        else
-                        {
-                            Log.Warn(nameof(ModifyRoomSettings), "调用Core的API[modify_room_settings]修改房间配置失败");
-                        }
-                    });
+                        Log.Info(nameof(ModifyRoomSettingsAsync), "调用Core的API[modify_room_settings]修改房间配置成功");
+                        return true;
+                    }
+                    else
+                    {
+                        Log.Warn(nameof(ModifyRoomSettingsAsync), "调用Core的API[modify_room_settings]修改房间配置失败");
+                        return false;
+                    }
                 }
                 else
                 {
-                    Task.Run(() =>
+                    if (await Task.Run(() => Core.RuntimeObject._Room.ModifyRoomSettings(uid, IsAutoRec, IsRemind, IsRecDanmu)))
                     {
-                        if (Core.RuntimeObject._Room.ModifyRoomSettings(uid, IsAutoRec, IsRemind, IsRecDanmu))
-                        {
-                            Log.Info(nameof(ModifyRoomSettings), "调用Core的API[modify_room_settings]修改房间配置成功");
-                        }
-                        else
-                        {
-                            Log.Warn(nameof(ModifyRoomSettings), "调用Core的API[modify_room_settings]修改房间配置失败");
-                        }
-                    });
+                        Log.Info(nameof(ModifyRoomSettingsAsync), "调用Core的API[modify_room_settings]修改房间配置成功");
+                        return true;
+                    }
+                    else
+                    {
+                        Log.Warn(nameof(ModifyRoomSettingsAsync), "调用Core的API[modify_room_settings]修改房间配置失败");
+                        return false;
+                    }
                 }
             }
         }

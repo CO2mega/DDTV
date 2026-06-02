@@ -74,152 +74,133 @@ namespace Desktop.Views.Windows
             }
         }
 
-        private void AddRoomSave_Click(object sender, RoutedEventArgs e)
+        private async void AddRoomSave_Click(object sender, RoutedEventArgs e)
         {
-            switch (_Mode)
+            try
             {
-                case Mode.RoomNumberMode:
-                    {
-                        if (string.IsNullOrEmpty(RoomId_TextBox.Text))
+                switch (_Mode)
+                {
+                    case Mode.RoomNumberMode:
                         {
-                            System.Windows.MessageBox.Show("请输入房间号");
-                            return;
-                        }
-                        if (!long.TryParse(RoomId_TextBox.Text, out long room_id) || room_id < 1)
-                        {
-                            System.Windows.MessageBox.Show("请输入正确的房间号");
-                            return;
-                        }
-                        else
-                        {
-                            Task.Run(() =>
+                            if (string.IsNullOrEmpty(RoomId_TextBox.Text))
                             {
-                                Dictionary<string, string> dic = new Dictionary<string, string>();
-                                Dispatcher.Invoke(() =>
+                                System.Windows.MessageBox.Show("请输入房间号");
+                                return;
+                            }
+                            if (!long.TryParse(RoomId_TextBox.Text, out long room_id) || room_id < 1)
+                            {
+                                System.Windows.MessageBox.Show("请输入正确的房间号");
+                                return;
+                            }
+                            else
+                            {
+                                Dictionary<string, string> dic = new Dictionary<string, string>
                                 {
-                                    dic = new Dictionary<string, string>
-                                    {
-                                        {"room_id", RoomId_TextBox.Text },
-                                        {"auto_rec",_IsAutoRec.ToString() },
-                                        {"remind",_IsRemind.ToString() },
-                                        {"rec_danmu",_IsDanmu.ToString() },
-                                    };
-                                });
+                                    {"room_id", RoomId_TextBox.Text },
+                                    {"auto_rec", _IsAutoRec.ToString() },
+                                    {"remind", _IsRemind.ToString() },
+                                    {"rec_danmu", _IsDanmu.ToString() },
+                                };
                                 int State = 0;
 
                                 if (Core.Config.Core_RunConfig._DesktopRemoteServer || Core.Config.Core_RunConfig._LocalHTTPMode)
                                 {
-                                    State = NetWork.Post.PostBody<int>($"{Config.Core_RunConfig._DesktopIP}:{Config.Core_RunConfig._DesktopPort}/api/set_rooms/add_room", dic).Result;
+                                    State = await NetWork.Post.PostBody<int>($"{Config.Core_RunConfig._DesktopIP}:{Config.Core_RunConfig._DesktopPort}/api/set_rooms/add_room", dic);
                                 }
                                 else
                                 {
-                                    string roomid = string.Empty; 
-                                    Dispatcher.Invoke(() =>
-                                    {
-                                        roomid = RoomId_TextBox.Text;
-                                    });
-                                    State = Core.RuntimeObject._Room.AddRoom(_IsAutoRec, _IsRemind, _IsDanmu, 0, long.Parse(roomid), false).State;
-
+                                    long roomId = long.Parse(RoomId_TextBox.Text);
+                                    State = await Task.Run(() => Core.RuntimeObject._Room.AddRoom(_IsAutoRec, _IsRemind, _IsDanmu, 0, roomId, false).State);
                                 }
 
-
-                                Dispatcher.Invoke(() =>
+                                switch (State)
                                 {
-                                    switch (State)
-                                    {
-                                        case 1:
-                                            Save_Message.Content = $"房间({RoomId_TextBox.Text})添加成功";
-                                            //添加成功
-                                            break;
-                                        case 2:
-                                            Save_Message.Content = $"房间({RoomId_TextBox.Text})已在列表中，添加失败";
-                                            //房间已存在
-                                            break;
-                                        case 3:
-                                            Save_Message.Content = $"房间({RoomId_TextBox.Text})不存在，添加失败";
-                                            //房间不存在
-                                            break;
-                                        case 4:
-                                            Save_Message.Content = $"添加房间({RoomId_TextBox.Text})由于参数错误失败";
-                                            //参数有误
-                                            break;
-                                        default:
-                                            Core.LogModule.Log.Warn(nameof(AddRoomSave_Click), "调用Core的API[add_room]增加房间失败，返回的对象为Null，详情请查看Core日志", null, true);
-                                            return;
-                                    }
-                                });
-                            });
-                        }
-                        break;
-                    }
-                case Mode.UidNumberMode:
-                    {
-                        string UidStr = RoomId_TextBox.Text.Replace("，", ",");
-                        List<long> UidList = new List<long>();
-                        if (string.IsNullOrEmpty(UidStr))
-                        {
-                            System.Windows.MessageBox.Show("请输入房间号");
-                            return;
-                        }
-                        foreach (var item in UidStr.Split(','))
-                        {
-                            if (!string.IsNullOrEmpty(item) && long.TryParse(item, out long uid) && uid > 0)
-                            {
-                                UidList.Add(uid);
+                                    case 1:
+                                        Save_Message.Content = $"房间({RoomId_TextBox.Text})添加成功";
+                                        break;
+                                    case 2:
+                                        Save_Message.Content = $"房间({RoomId_TextBox.Text})已在列表中，添加失败";
+                                        break;
+                                    case 3:
+                                        Save_Message.Content = $"房间({RoomId_TextBox.Text})不存在，添加失败";
+                                        break;
+                                    case 4:
+                                        Save_Message.Content = $"添加房间({RoomId_TextBox.Text})由于参数错误失败";
+                                        break;
+                                    default:
+                                        Core.LogModule.Log.Warn(nameof(AddRoomSave_Click), "调用Core的API[add_room]增加房间失败，返回的对象为Null，详情请查看Core日志", null, true);
+                                        System.Windows.MessageBox.Show("添加房间失败，请检查网络连接或服务器状态。", "网络请求失败", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Warning);
+                                        return;
+                                }
                             }
+                            break;
                         }
-                        if (UidList.Count > 0)
+                    case Mode.UidNumberMode:
                         {
-                            Task.Run(() =>
+                            string UidStr = RoomId_TextBox.Text.Replace("，", ",");
+                            List<long> UidList = new List<long>();
+                            if (string.IsNullOrEmpty(UidStr))
                             {
-
+                                System.Windows.MessageBox.Show("请输入房间号");
+                                return;
+                            }
+                            foreach (var item in UidStr.Split(','))
+                            {
+                                if (!string.IsNullOrEmpty(item) && long.TryParse(item, out long uid) && uid > 0)
+                                {
+                                    UidList.Add(uid);
+                                }
+                            }
+                            if (UidList.Count > 0)
+                            {
                                 long[] _uidl = new long[UidList.Count];
                                 for (int i = 0; i < UidList.Count; i++)
                                 {
                                     _uidl[i] = UidList[i];
                                 }
                                 Dictionary<string, string> dic = new Dictionary<string, string>
-                            {
-                                { "uids", string.Join(",", _uidl) },
-                                { "auto_rec", _IsAutoRec.ToString() },
-                                { "remind", _IsRemind.ToString() },
-                                { "rec_danmu", _IsDanmu.ToString() },
-                            };
-                                List<(long key, int State, string Message)> State = NetWork.Post.PostBody<List<(long key, int State, string Message)>>($"{Config.Core_RunConfig._DesktopIP}:{Config.Core_RunConfig._DesktopPort}/api/set_rooms/batch_add_room", dic).Result;
+                                {
+                                    { "uids", string.Join(",", _uidl) },
+                                    { "auto_rec", _IsAutoRec.ToString() },
+                                    { "remind", _IsRemind.ToString() },
+                                    { "rec_danmu", _IsDanmu.ToString() },
+                                };
+                                List<(long key, int State, string Message)> State = null;
 
                                 if (Core.Config.Core_RunConfig._DesktopRemoteServer || Core.Config.Core_RunConfig._LocalHTTPMode)
                                 {
-                                    State = NetWork.Post.PostBody<List<(long key, int State, string Message)>>($"{Config.Core_RunConfig._DesktopIP}:{Config.Core_RunConfig._DesktopPort}/api/set_rooms/batch_add_room", dic).Result;
+                                    State = await NetWork.Post.PostBody<List<(long key, int State, string Message)>>($"{Config.Core_RunConfig._DesktopIP}:{Config.Core_RunConfig._DesktopPort}/api/set_rooms/batch_add_room", dic);
                                 }
                                 else
                                 {
-                                    State = Core.RuntimeObject._Room.BatchAddRooms(string.Join(",", _uidl), _IsAutoRec, _IsRemind, _IsDanmu);
+                                    State = await Task.Run(() => Core.RuntimeObject._Room.BatchAddRooms(string.Join(",", _uidl), _IsAutoRec, _IsRemind, _IsDanmu));
                                 }
 
-
-                                Dispatcher.Invoke(() =>
+                                if (State == null)
                                 {
-                                    if (State == null)
-                                    {
-                                        Core.LogModule.Log.Warn(nameof(AddRoomSave_Click), "调用Core的API[batch_add_room]批量添加房间失败，返回的对象为Null，详情请查看Core日志", null, true);
-                                        Save_Message.Content = $"增加房间失败，如果一直提示该错误，请联系开发者";
-                                        return;
-                                    }
-                                    else
-                                    {
-                                        int Count = UidList.Count;
-                                        int Ok = State.Count(item => item.State == 1);
-                                        int Repeat = State.Count(item => item.State == 2);
-                                        int NotPresent = State.Count(item => item.State == 3);
-                                        Save_Message.Content = $"输入有效UID {Count} 个，{Repeat} 个已存在，{NotPresent} 个房间不存在，成功添加 {Ok} 个";
-                                    }
-                                });
-                            });
+                                    Core.LogModule.Log.Warn(nameof(AddRoomSave_Click), "调用Core的API[batch_add_room]批量添加房间失败，返回的对象为Null，详情请查看Core日志", null, true);
+                                    System.Windows.MessageBox.Show("批量添加房间失败，请检查网络连接或服务器状态。", "网络请求失败", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Warning);
+                                    Save_Message.Content = $"增加房间失败，如果一直提示该错误，请联系开发者";
+                                    return;
+                                }
+                                else
+                                {
+                                    int Count = UidList.Count;
+                                    int Ok = State.Count(item => item.State == 1);
+                                    int Repeat = State.Count(item => item.State == 2);
+                                    int NotPresent = State.Count(item => item.State == 3);
+                                    Save_Message.Content = $"输入有效UID {Count} 个，{Repeat} 个已存在，{NotPresent} 个房间不存在，成功添加 {Ok} 个";
+                                }
+                            }
+                            break;
                         }
-                        break;
-                    }
+                }
             }
-
+            catch (Exception ex)
+            {
+                Core.LogModule.Log.Error(nameof(AddRoomSave_Click), "添加房间时发生异常", ex);
+                System.Windows.MessageBox.Show("添加房间失败，请检查网络连接或服务器状态。", "操作失败", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
+            }
         }
     }
 }

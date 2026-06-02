@@ -74,10 +74,10 @@ namespace Desktop.Views.Windows
                 string C = string.Empty;
                 if (Core.Config.Core_RunConfig._DesktopRemoteServer || Core.Config.Core_RunConfig._LocalHTTPMode)
                 {
-                    C = NetWork.Get.GetBody<string>($"{Config.Core_RunConfig._DesktopIP}:{Config.Core_RunConfig._DesktopPort}/api/system/get_c").Replace(" ", "");
+                    C = (await NetWork.Get.GetBodyAsync<string>($"{Config.Core_RunConfig._DesktopIP}:{Config.Core_RunConfig._DesktopPort}/api/system/get_c"))?.Replace(" ", "");
                     if (string.IsNullOrEmpty(C))
                     {
-                        C = NetWork.Get.GetBody<string>($"{Config.Core_RunConfig._DesktopIP}:{Config.Core_RunConfig._DesktopPort}/api/system/get_c").Replace(" ", "");
+                        C = (await NetWork.Get.GetBodyAsync<string>($"{Config.Core_RunConfig._DesktopIP}:{Config.Core_RunConfig._DesktopPort}/api/system/get_c"))?.Replace(" ", "");
                     }
                 }
                 else
@@ -104,6 +104,7 @@ namespace Desktop.Views.Windows
              catch (Exception EX)
             {
                 Log.Error(nameof(WebPlayWindow), $"房间号:[{_room_id}],打开错误", EX, true);
+                System.Windows.MessageBox.Show("打开播放器失败，请检查网络连接或服务器状态。", "网络请求失败", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Warning);
             }
         }
         internal class test

@@ -125,22 +125,58 @@ namespace Desktop.Views.Control
             }
         }
 
-        private void MenuItem_ModifyRoom_AutoRec_Click(object sender, RoutedEventArgs e)
+        private async void MenuItem_ModifyRoom_AutoRec_Click(object sender, RoutedEventArgs e)
         {
-            Models.DataCard dataCard = GetDataCard(sender);
-            DataSource.RetrieveData.RoomInfo.ModifyRoomSettings(dataCard.Uid, !dataCard.IsRec, dataCard.IsDanmu, dataCard.IsRemind);
+            try
+            {
+                Models.DataCard dataCard = GetDataCard(sender);
+                bool success = await DataSource.RetrieveData.RoomInfo.ModifyRoomSettingsAsync(dataCard.Uid, !dataCard.IsRec, dataCard.IsDanmu, dataCard.IsRemind);
+                if (!success)
+                {
+                    System.Windows.MessageBox.Show("修改房间设置失败，请检查网络连接或服务器状态。", "网络请求失败", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Warning);
+                }
+            }
+            catch (Exception ex)
+            {
+                Core.LogModule.Log.Error(nameof(MenuItem_ModifyRoom_AutoRec_Click), "修改自动录制设置时发生异常", ex);
+                System.Windows.MessageBox.Show("修改房间设置失败，请检查网络连接或服务器状态。", "操作失败", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
+            }
         }
 
-        private void MenuItem_ModifyRoom_Danmu_Click(object sender, RoutedEventArgs e)
+        private async void MenuItem_ModifyRoom_Danmu_Click(object sender, RoutedEventArgs e)
         {
-            Models.DataCard dataCard = GetDataCard(sender);
-            DataSource.RetrieveData.RoomInfo.ModifyRoomSettings(dataCard.Uid, dataCard.IsRec, !dataCard.IsDanmu, dataCard.IsRemind);
+            try
+            {
+                Models.DataCard dataCard = GetDataCard(sender);
+                bool success = await DataSource.RetrieveData.RoomInfo.ModifyRoomSettingsAsync(dataCard.Uid, dataCard.IsRec, !dataCard.IsDanmu, dataCard.IsRemind);
+                if (!success)
+                {
+                    System.Windows.MessageBox.Show("修改房间设置失败，请检查网络连接或服务器状态。", "网络请求失败", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Warning);
+                }
+            }
+            catch (Exception ex)
+            {
+                Core.LogModule.Log.Error(nameof(MenuItem_ModifyRoom_Danmu_Click), "修改弹幕录制设置时发生异常", ex);
+                System.Windows.MessageBox.Show("修改房间设置失败，请检查网络连接或服务器状态。", "操作失败", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
+            }
         }
 
-        private void MenuItem_ModifyRoom_Remind_Click(object sender, RoutedEventArgs e)
+        private async void MenuItem_ModifyRoom_Remind_Click(object sender, RoutedEventArgs e)
         {
-            Models.DataCard dataCard = GetDataCard(sender);
-            DataSource.RetrieveData.RoomInfo.ModifyRoomSettings(dataCard.Uid, dataCard.IsRec, dataCard.IsDanmu, !dataCard.IsRemind);
+            try
+            {
+                Models.DataCard dataCard = GetDataCard(sender);
+                bool success = await DataSource.RetrieveData.RoomInfo.ModifyRoomSettingsAsync(dataCard.Uid, dataCard.IsRec, dataCard.IsDanmu, !dataCard.IsRemind);
+                if (!success)
+                {
+                    System.Windows.MessageBox.Show("修改房间设置失败，请检查网络连接或服务器状态。", "网络请求失败", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Warning);
+                }
+            }
+            catch (Exception ex)
+            {
+                Core.LogModule.Log.Error(nameof(MenuItem_ModifyRoom_Remind_Click), "修改开播提醒设置时发生异常", ex);
+                System.Windows.MessageBox.Show("修改房间设置失败，请检查网络连接或服务器状态。", "操作失败", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
+            }
         }
 
         private async void DelRoom_Click(object sender, RoutedEventArgs e)
