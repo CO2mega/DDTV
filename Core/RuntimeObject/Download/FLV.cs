@@ -72,8 +72,31 @@ namespace Core.RuntimeObject.Download
                     client.DefaultRequestHeaders.Add("Cookie", RuntimeObject.Account.AccountInformation.strCookies);
                 }
 
-                HostClass hostClass = GetFlvHost_avc(card);
-                string DlwnloadURL = $"{hostClass.host}{hostClass.base_url}{hostClass.uri_name}{hostClass.extra}";
+                HostClass hostClass = new HostClass();
+                string DlwnloadURL = string.Empty;
+
+                // 刷新 FLV 流地址并拼接下载 URL；房间没有可用 FLV 流(Effective=false)时返回 false，
+                // 避免拿到空 URL 去请求导致 HttpClient 抛 InvalidOperationException
+                bool RefreshFlvUrl()
+                {
+                    hostClass = GetFlvHost_avc(card);
+                    if (!hostClass.Effective)
+                    {
+                        DlwnloadURL = string.Empty;
+                        return false;
+                    }
+                    DlwnloadURL = $"{hostClass.host}{hostClass.base_url}{hostClass.uri_name}{hostClass.extra}";
+                    return true;
+                }
+
+                if (!RefreshFlvUrl())
+                {
+                    // FLV 流地址获取失败，直接返回，不要拿空 URL 去请求
+                    hlsState = DownloadTaskState.NoHLSStreamExists;
+                    Log.Info(nameof(DlwnloadHls_avc_flv), $"[{card.Name}({card.RoomId})]未获取到有效的FLV流地址，跳过本次FLV下载");
+                    return;
+                }
+
                 string F_S = Config.Core_RunConfig._RecFileDirectory + (Config.Core_RunConfig._RecFileDirectory.EndsWith("/") || Config.Core_RunConfig._RecFileDirectory.EndsWith("\\") ? "" : "/") + File.Replace(Config.Core_RunConfig._RecFileDirectory, "").Replace("\\", "/");
                 card.DownInfo.DownloadFileList.CurrentOperationVideoFile = F_S;
                 LogDownloadStart(card, "FLV");
@@ -102,7 +125,7 @@ namespace Core.RuntimeObject.Download
                                     return;
                                 }
 
-                                if (card.DownInfo.Unmark || card.DownInfo.IsCut || card.live_time.Value != startLiveTime)
+                                if (card.DownInfo.Unmark || card.DownInfo.IsCut || card.live_time.Value != startLiveTime || !RoomInfo.GetLiveStatus(card.RoomId))
                                 {
                                     hlsState = CheckAndHandleFile(File, ref card, card.live_time.Value != startLiveTime);
                                     return;
@@ -156,8 +179,11 @@ namespace Core.RuntimeObject.Download
                                 int delayMs = (int)Math.Pow(2, retryCount) * 1000;
                                 Log.Info(nameof(DlwnloadHls_avc_flv), $"[{card.Name}({card.RoomId})]FLV流意外中断，{delayMs}ms后第{retryCount}次重试");
                                 Thread.Sleep(delayMs);
-                                hostClass = GetFlvHost_avc(card);
-                                DlwnloadURL = $"{hostClass.host}{hostClass.base_url}{hostClass.uri_name}{hostClass.extra}";
+                                if (!RefreshFlvUrl())
+                                {
+                                    hlsState = DownloadTaskState.NoHLSStreamExists;
+                                    break;
+                                }
                                 continue;
                             }
                         }
@@ -169,8 +195,11 @@ namespace Core.RuntimeObject.Download
                                 int delayMs = (int)Math.Pow(2, retryCount) * 1000;
                                 Log.Warn(nameof(DlwnloadHls_avc_flv), $"[{card.Name}({card.RoomId})]FLV下载HTTP错误，{delayMs}ms后第{retryCount}次重试：{ex.Message}");
                                 Thread.Sleep(delayMs);
-                                hostClass = GetFlvHost_avc(card);
-                                DlwnloadURL = $"{hostClass.host}{hostClass.base_url}{hostClass.uri_name}{hostClass.extra}";
+                                if (!RefreshFlvUrl())
+                                {
+                                    hlsState = DownloadTaskState.NoHLSStreamExists;
+                                    break;
+                                }
                                 continue;
                             }
                             Log.Error(nameof(DlwnloadHls_avc_flv), $"[{card.Name}({card.RoomId})]FLV下载HTTP错误，重试耗尽", ex);
@@ -184,8 +213,11 @@ namespace Core.RuntimeObject.Download
                                 int delayMs = (int)Math.Pow(2, retryCount) * 1000;
                                 Log.Warn(nameof(DlwnloadHls_avc_flv), $"[{card.Name}({card.RoomId})]FLV下载IO错误，{delayMs}ms后第{retryCount}次重试：{ex.Message}");
                                 Thread.Sleep(delayMs);
-                                hostClass = GetFlvHost_avc(card);
-                                DlwnloadURL = $"{hostClass.host}{hostClass.base_url}{hostClass.uri_name}{hostClass.extra}";
+                                if (!RefreshFlvUrl())
+                                {
+                                    hlsState = DownloadTaskState.NoHLSStreamExists;
+                                    break;
+                                }
                                 continue;
                             }
                             Log.Error(nameof(DlwnloadHls_avc_flv), $"[{card.Name}({card.RoomId})]FLV下载IO错误，重试耗尽", ex);
@@ -199,8 +231,11 @@ namespace Core.RuntimeObject.Download
                                 int delayMs = (int)Math.Pow(2, retryCount) * 1000;
                                 Log.Warn(nameof(DlwnloadHls_avc_flv), $"[{card.Name}({card.RoomId})]FLV下载超时，{delayMs}ms后第{retryCount}次重试");
                                 Thread.Sleep(delayMs);
-                                hostClass = GetFlvHost_avc(card);
-                                DlwnloadURL = $"{hostClass.host}{hostClass.base_url}{hostClass.uri_name}{hostClass.extra}";
+                                if (!RefreshFlvUrl())
+                                {
+                                    hlsState = DownloadTaskState.NoHLSStreamExists;
+                                    break;
+                                }
                                 continue;
                             }
                             Log.Error(nameof(DlwnloadHls_avc_flv), $"[{card.Name}({card.RoomId})]FLV下载超时，重试耗尽");

@@ -50,7 +50,7 @@ namespace Core.RuntimeObject.Download
                     break;
                 case RecordingMode.FLV_Only:
                     result = await FLV.DlwnloadHls_avc_flv(roomCard);
-                    if (result.TaskState == DownloadTaskState.SuccessfulButNotStream)
+                    if (result.TaskState == DownloadTaskState.SuccessfulButNotStream || result.TaskState == DownloadTaskState.NoHLSStreamExists)
                     {
                         //落到FLV都还没流，应该是下播了但是没关直播间，这里手动等15秒再检测，不然疯狂刷屏
                         Thread.Sleep(1000 * 15);
@@ -64,7 +64,7 @@ namespace Core.RuntimeObject.Download
                         Log.Info(nameof(DetectRoom_LiveStart), $"{roomCard.Name}({roomCard.RoomId})降级到FLV模式进行录制");
                         //FLV兜底逻辑
                         result = await FLV.DlwnloadHls_avc_flv(roomCard);
-                        if (result.TaskState == DownloadTaskState.SuccessfulButNotStream)
+                        if (result.TaskState == DownloadTaskState.SuccessfulButNotStream || result.TaskState == DownloadTaskState.NoHLSStreamExists)
                         {
                             //落到FLV都还没流，应该是下播了但是没关直播间，这里手动等15秒再检测，不然疯狂刷屏
                             Thread.Sleep(1000 * 15);

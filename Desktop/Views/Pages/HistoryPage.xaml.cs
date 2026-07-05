@@ -33,16 +33,11 @@ public partial class HistoryPage
 
     private void Detect_RecEndEvent(object? sender, EventArgs e)
     {
-        (string Name, string Time, string Title) = ((string, string, string))sender;
-        Core.RuntimeObject.Detect.History _historyPageModels = new()
-        {
-            Name = Name,
-            Time = Time,
-            Title = Title
-        };
+        // 发布方(DetectRoom.RecEndEvent)传入的 sender 即为已填充好的 History 对象
+        if (sender is not Core.RuntimeObject.Detect.History history) return;
         Dispatcher.Invoke(() =>
         {
-            histories.Insert(0, _historyPageModels);
+            histories.Insert(0, history);
         });
     }
 

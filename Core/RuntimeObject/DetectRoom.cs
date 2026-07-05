@@ -83,20 +83,31 @@ namespace Core.RuntimeObject
                         return;
                     }
                     roomCard.DownInfo.IsDownload = true;
-                    if (roomCard.IsRecDanmu)
+                    try
                     {
-                        
-                        if (roomCard.DownInfo.LiveChatListener == null)
+                        if (roomCard.IsRecDanmu)
                         {
-                            roomCard.DownInfo.LiveChatListener = new Core.LiveChat.LiveChatListener(roomCard.RoomId);
-                            roomCard.DownInfo.LiveChatListener.Register.Add("DetectRoom_LiveStart");
-                            roomCard.DownInfo.LiveChatListener.Connect();
+
+                            if (roomCard.DownInfo.LiveChatListener == null)
+                            {
+                                roomCard.DownInfo.LiveChatListener = new Core.LiveChat.LiveChatListener(roomCard.RoomId);
+                                roomCard.DownInfo.LiveChatListener.Register.Add("DetectRoom_LiveStart");
+                                roomCard.DownInfo.LiveChatListener.Connect();
+                            }
+                            else
+                            {
+                                roomCard.DownInfo.LiveChatListener.Register.Add("DetectRoom_LiveStart");
+                                Danmu.ReconnectRoomDanmaObjects(roomCard);
+                            }
                         }
-                        else
-                        {
-                            roomCard.DownInfo.LiveChatListener.Register.Add("DetectRoom_LiveStart");
-                            Danmu.ReconnectRoomDanmaObjects(roomCard);
-                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        // 弹幕初始化抛异常时，下面的录制 try-finally 尚未进入、不会清理 IsDownload；
+                        // 不在此兜底，IsDownload 会永久保持 true，使上面的"已有录制任务"检查永久跳过该房间后续录制。
+                        roomCard.DownInfo.IsDownload = false;
+                        Log.Error(nameof(DetectRoom_LiveStart), $"{roomCard.Name}({roomCard.RoomId})弹幕初始化失败，已重置录制占位状态", ex);
+                        throw;
                     }
                     try
                     {
