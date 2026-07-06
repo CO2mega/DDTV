@@ -72,26 +72,13 @@ namespace Core.RuntimeObject.Download
                     client.DefaultRequestHeaders.Add("Cookie", RuntimeObject.Account.AccountInformation.strCookies);
                 }
 
-                HostClass hostClass = new HostClass();
                 string DlwnloadURL = string.Empty;
 
-                // 刷新 FLV 流地址并拼接下载 URL；房间没有可用 FLV 流(Effective=false)时返回 false，
-                // 避免拿到空 URL 去请求导致 HttpClient 抛 InvalidOperationException
-                bool RefreshFlvUrl()
+                if (!GetFlvAvcUrl(card, Config.Core_RunConfig._DefaultResolution, out DlwnloadURL))
                 {
-                    hostClass = GetFlvHost_avc(card);
-                    if (!hostClass.Effective)
-                    {
-                        DlwnloadURL = string.Empty;
-                        return false;
-                    }
-                    DlwnloadURL = $"{hostClass.host}{hostClass.base_url}{hostClass.uri_name}{hostClass.extra}";
-                    return true;
-                }
-
-                if (!RefreshFlvUrl())
-                {
-                    // FLV 流地址获取失败，直接返回，不要拿空 URL 去请求
+                    // FLV 流地址获取失败(房间未开播/暂无 FLV 流)，直接返回，不要拿空 URL 去请求。
+                    // 补设 StartTime，避免它停在默认值 UnixEpoch(1970) 经 API/Overview 外露
+                    card.DownInfo.StartTime = DateTime.Now;
                     hlsState = DownloadTaskState.NoHLSStreamExists;
                     Log.Info(nameof(DlwnloadHls_avc_flv), $"[{card.Name}({card.RoomId})]未获取到有效的FLV流地址，跳过本次FLV下载");
                     return;
@@ -125,7 +112,7 @@ namespace Core.RuntimeObject.Download
                                     return;
                                 }
 
-                                if (card.DownInfo.Unmark || card.DownInfo.IsCut || card.live_time.Value != startLiveTime || !RoomInfo.GetLiveStatus(card.RoomId))
+                                if (ShouldFinalizeRecording(card, startLiveTime))
                                 {
                                     hlsState = CheckAndHandleFile(File, ref card, card.live_time.Value != startLiveTime);
                                     return;
@@ -179,7 +166,7 @@ namespace Core.RuntimeObject.Download
                                 int delayMs = (int)Math.Pow(2, retryCount) * 1000;
                                 Log.Info(nameof(DlwnloadHls_avc_flv), $"[{card.Name}({card.RoomId})]FLV流意外中断，{delayMs}ms后第{retryCount}次重试");
                                 Thread.Sleep(delayMs);
-                                if (!RefreshFlvUrl())
+                                if (!GetFlvAvcUrl(card, Config.Core_RunConfig._DefaultResolution, out DlwnloadURL))
                                 {
                                     hlsState = DownloadTaskState.NoHLSStreamExists;
                                     break;
@@ -195,7 +182,7 @@ namespace Core.RuntimeObject.Download
                                 int delayMs = (int)Math.Pow(2, retryCount) * 1000;
                                 Log.Warn(nameof(DlwnloadHls_avc_flv), $"[{card.Name}({card.RoomId})]FLV下载HTTP错误，{delayMs}ms后第{retryCount}次重试：{ex.Message}");
                                 Thread.Sleep(delayMs);
-                                if (!RefreshFlvUrl())
+                                if (!GetFlvAvcUrl(card, Config.Core_RunConfig._DefaultResolution, out DlwnloadURL))
                                 {
                                     hlsState = DownloadTaskState.NoHLSStreamExists;
                                     break;
@@ -213,7 +200,7 @@ namespace Core.RuntimeObject.Download
                                 int delayMs = (int)Math.Pow(2, retryCount) * 1000;
                                 Log.Warn(nameof(DlwnloadHls_avc_flv), $"[{card.Name}({card.RoomId})]FLV下载IO错误，{delayMs}ms后第{retryCount}次重试：{ex.Message}");
                                 Thread.Sleep(delayMs);
-                                if (!RefreshFlvUrl())
+                                if (!GetFlvAvcUrl(card, Config.Core_RunConfig._DefaultResolution, out DlwnloadURL))
                                 {
                                     hlsState = DownloadTaskState.NoHLSStreamExists;
                                     break;
@@ -231,7 +218,7 @@ namespace Core.RuntimeObject.Download
                                 int delayMs = (int)Math.Pow(2, retryCount) * 1000;
                                 Log.Warn(nameof(DlwnloadHls_avc_flv), $"[{card.Name}({card.RoomId})]FLV下载超时，{delayMs}ms后第{retryCount}次重试");
                                 Thread.Sleep(delayMs);
-                                if (!RefreshFlvUrl())
+                                if (!GetFlvAvcUrl(card, Config.Core_RunConfig._DefaultResolution, out DlwnloadURL))
                                 {
                                     hlsState = DownloadTaskState.NoHLSStreamExists;
                                     break;
@@ -249,7 +236,12 @@ namespace Core.RuntimeObject.Download
                     }
                 }
 
-                hlsState = CheckAndHandleFile(File, ref card);
+                // 仅在不是"FLV 流地址无效"时收尾文件；否则保留上面重试 break 设的 NoHLSStreamExists，
+                // 让 Basics.cs 的 15 秒节流生效，避免 do-while 立刻重进刷屏(本次改动原本想治的死循环)
+                if (hlsState != DownloadTaskState.NoHLSStreamExists)
+                {
+                    hlsState = CheckAndHandleFile(File, ref card);
+                }
                 try
                 {
                     stopWatch.Stop();

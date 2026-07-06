@@ -76,7 +76,11 @@ namespace Core.RuntimeObject.Download
             if (roomCard.IsRecDanmu && roomCard.DownInfo.LiveChatListener != null)
             {
                 roomCard.DownInfo.LiveChatListener.File = result.FileName.Replace("_original.mp4", "").Replace("_original.flv", "");
-                Danmu.SaveDanmu(roomCard.DownInfo.LiveChatListener, result.TaskState == DownloadTaskState.SuccessfulButNotStream ? true : false, ref roomCard);
+                // NoHLSStreamExists 和 SuccessfulButNotStream 都表示"没有可用视频流"，弹幕应只清不存，
+                // 否则会把弹幕/礼物/上舰/SC 写到根本没创建的 _original.flv 名下，产生孤儿文件
+                bool noVideoStream = result.TaskState == DownloadTaskState.SuccessfulButNotStream
+                                  || result.TaskState == DownloadTaskState.NoHLSStreamExists;
+                Danmu.SaveDanmu(roomCard.DownInfo.LiveChatListener, noVideoStream, ref roomCard);
             }
             //如果是付费直播，结束当前录制任务
             if (result.TaskState == DownloadTaskState.PaidLiveStream)
@@ -137,6 +141,14 @@ namespace Core.RuntimeObject.Download
             card.DownInfo.taskType = taskType;
             _Room.SetRoomCardByUid(card.UID, card);
         }
+
+        /// <summary>
+        /// 检测需要"收尾并保留文件"的录制停止条件：用户取消(Unmark)、手动切割(IsCut)、或主播重推流(live_time 变化)。
+        /// 注意：不要在这里用 card.live_status 判断下播——传给下载函数的 card 来自 GetCardListClone，可能不是字典里的最新引用，
+        /// 其 live_status 可能是默认值(-1)从而导致误判退出。下播检测交给各下载路径原有的机制(HLS 的 host 刷新 / FLV 的 read==0)。
+        /// </summary>
+        internal static bool ShouldFinalizeRecording(RoomCardClass card, long startLiveTime)
+            => card.DownInfo.Unmark || card.DownInfo.IsCut || card.live_time.Value != startLiveTime;
 
         /// <summary>
         /// 如果目录不存在，则创建目录

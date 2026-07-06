@@ -141,7 +141,7 @@ namespace Core.RuntimeObject.Download
                         long downloadSizeForThisCycle = 0;
                         try
                         {
-                            if (card.DownInfo.Unmark || card.DownInfo.IsCut || card.live_time.Value != StartLiveTime || !RoomInfo.GetLiveStatus(card.RoomId))
+                            if (ShouldFinalizeRecording(card, StartLiveTime))
                             {
                                 hlsState = CheckAndHandleFile(File, ref card, card.live_time.Value != StartLiveTime ? true : false);
                                 return;

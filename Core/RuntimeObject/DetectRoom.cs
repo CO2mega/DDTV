@@ -82,12 +82,14 @@ namespace Core.RuntimeObject
                         Log.Info(nameof(DetectRoom_LiveStart), $"{roomCard.Name}({roomCard.RoomId})触发录制事件，但目前该房间已有录制任务，跳过本次录制任务");
                         return;
                     }
-                    roomCard.DownInfo.IsDownload = true;
                     try
                     {
+                        // IsDownload 作为"已有录制任务"的占位锁(见上方 IsDownload 检查)放在录制 try 内部，
+                        // 由下方 finally 统一重置。这样弹幕初始化等任何前置步骤抛异常时，IsDownload、
+                        // LiveChatListener、Register 条目都会被同一个 finally 清理干净，不会泄漏。
+                        roomCard.DownInfo.IsDownload = true;
                         if (roomCard.IsRecDanmu)
                         {
-
                             if (roomCard.DownInfo.LiveChatListener == null)
                             {
                                 roomCard.DownInfo.LiveChatListener = new Core.LiveChat.LiveChatListener(roomCard.RoomId);
@@ -99,20 +101,6 @@ namespace Core.RuntimeObject
                                 roomCard.DownInfo.LiveChatListener.Register.Add("DetectRoom_LiveStart");
                                 Danmu.ReconnectRoomDanmaObjects(roomCard);
                             }
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        // 弹幕初始化抛异常时，下面的录制 try-finally 尚未进入、不会清理 IsDownload；
-                        // 不在此兜底，IsDownload 会永久保持 true，使上面的"已有录制任务"检查永久跳过该房间后续录制。
-                        roomCard.DownInfo.IsDownload = false;
-                        Log.Error(nameof(DetectRoom_LiveStart), $"{roomCard.Name}({roomCard.RoomId})弹幕初始化失败，已重置录制占位状态", ex);
-                        throw;
-                    }
-                    try
-                    {
-                        if (roomCard.IsRecDanmu)
-                        {
                             if (roomCard.DownInfo.LiveChatListener != null)
                             {
                                 roomCard.DownInfo.LiveChatListener.MessageReceived -= Basics.LiveChatListener_MessageReceived;

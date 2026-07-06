@@ -34,7 +34,14 @@ public partial class HistoryPage
     private void Detect_RecEndEvent(object? sender, EventArgs e)
     {
         // 发布方(DetectRoom.RecEndEvent)传入的 sender 即为已填充好的 History 对象
-        if (sender is not Core.RuntimeObject.Detect.History history) return;
+        if (sender is not Core.RuntimeObject.Detect.History src) return;
+        // 拷贝一份再插入，避免与 Core.RuntimeObject.Detect.histories 共享同一个可变引用
+        var history = new Core.RuntimeObject.Detect.History
+        {
+            Name = src.Name,
+            Time = src.Time,
+            Title = src.Title
+        };
         Dispatcher.Invoke(() =>
         {
             histories.Insert(0, history);
