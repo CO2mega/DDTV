@@ -306,11 +306,18 @@ namespace Core.RuntimeObject
         /// </summary>
         public static bool IsFirst = true;
         /// <summary>
+        /// 巡检重入保护标志（0：空闲 1：巡检中）
+        /// </summary>
+        private int _roomLoopRunning = 0;
+        /// <summary>
         /// 检查直播间直播状态，并触发开关播事件
         /// </summary>
         /// <returns></returns>
         private void RoomLoopDetection(object o)
         {
+            //上一轮巡检还没结束（如网络卡顿导致超时）则跳过本轮，避免多轮巡检并发重入雪崩
+            if (Interlocked.CompareExchange(ref _roomLoopRunning, 1, 0) != 0)
+                return;
             try
             {
                 if (!_state) return;
@@ -320,7 +327,7 @@ namespace Core.RuntimeObject
                 {
 
                     (RoomCardClass Card, bool IsFirst) LiveInvoke = new();
-                    LiveInvoke.Card = List.FirstOrDefault(x => x.Value.UID == item.Value.UID).Value;
+                    LiveInvoke.Card = item.Value;
                     LiveInvoke.IsFirst = IsFirst;
                     if (LiveInvoke.Card == null)
                     {
@@ -349,6 +356,10 @@ namespace Core.RuntimeObject
             catch (Exception e)
             {
                 Log.Error(nameof(RoomLoopDetection), $"直播间状态轮询发生意外错误，错误信息：{e.ToString()}", e);
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _roomLoopRunning, 0);
             }
             DetectRoom.IsFirst = false;
         }

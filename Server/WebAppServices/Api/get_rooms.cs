@@ -171,27 +171,29 @@ namespace Server.WebAppServices.Api
                 }
                 else
                 {
+                    //先物化为List，分页循环内用索引取值，避免Dictionary的ElementAt每次O(i)枚举导致整页O(n²)
+                    var pageList = roomList.ToList();
                     for (int i = page * quantity - quantity; i < roomList.Count && i < page * quantity; i++)
                     {
                         Data.BasicInfo basicInfo = new Data.BasicInfo();
                         basicInfo.userInfo = new()
                         {
-                            name = roomList.ElementAt(i).Value.Name,
-                            uid = roomList.ElementAt(i).Value.UID,
-                            appointmentRecord=roomList.ElementAt(i).Value.AppointmentRecord
+                            name = pageList[i].Value.Name,
+                            uid = pageList[i].Value.UID,
+                            appointmentRecord=pageList[i].Value.AppointmentRecord
                         };
                         basicInfo.roomInfo = new Data.BasicInfo.RoomInfo()
                         {
-                            liveStatus = roomList.ElementAt(i).Value.live_status.Value == 1 ? true : false,
-                            roomId = roomList.ElementAt(i).Value.RoomId,
-                            title = roomList.ElementAt(i).Value.Title.Value,
-                            specialType = roomList.ElementAt(i).Value.special_type.Value,
+                            liveStatus = pageList[i].Value.live_status.Value == 1 ? true : false,
+                            roomId = pageList[i].Value.RoomId,
+                            title = pageList[i].Value.Title.Value,
+                            specialType = pageList[i].Value.special_type.Value,
                         };
                         basicInfo.taskStatus = new Data.BasicInfo.TaskStatus()
                         {
-                            downloadSize = roomList.ElementAt(i).Value.DownInfo.DownloadSize,
-                            isDownload = roomList.ElementAt(i).Value.DownInfo.IsDownload,
-                            status = roomList.ElementAt(i).Value.DownInfo.Status,
+                            downloadSize = pageList[i].Value.DownInfo.DownloadSize,
+                            isDownload = pageList[i].Value.DownInfo.IsDownload,
+                            status = pageList[i].Value.DownInfo.Status,
                         };
                         basicRoomInfoRes.basicInfoList.Add(basicInfo);
                     }

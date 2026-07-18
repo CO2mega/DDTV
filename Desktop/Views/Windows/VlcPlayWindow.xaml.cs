@@ -415,6 +415,9 @@ namespace Desktop.Views.Windows
         {
             if (_mediaPlayer != null)
             {
+                //先退订播放事件，避免Disposed对象上残留回调
+                _mediaPlayer.Playing -= MediaPlayer_Playing;
+                _mediaPlayer.EndReached -= MediaPlayer_EndReached;
                 if (_mediaPlayer.IsPlaying)
                 {
                     _mediaPlayer.Stop();
@@ -425,7 +428,18 @@ namespace Desktop.Views.Windows
                     _mediaPlayer.Media = null;
                 }
                 Log.Info(nameof(PlaySteam), $"房间号:[{roomCard.RoomId}],关闭播放器");
+                //释放native资源，避免反复开关播放窗积累句柄和内存
+                videoView.MediaPlayer = null;
+                _mediaPlayer.Dispose();
+                _mediaPlayer = null;
             }
+            if (_libVLC != null)
+            {
+                _libVLC.Dispose();
+                _libVLC = null;
+            }
+            //无论弹幕开关状态如何都确保退订重连事件，防止静态事件残留引用导致窗口无法回收
+            Core.RuntimeObject.Danmu.DanmaTriggerReconnect -= Instance_DanmaTriggerReconnect;
             if (DanmaSwitch)
             {
                 CloseDanma();
@@ -531,32 +545,39 @@ namespace Desktop.Views.Windows
 
         private void AddDanmu(string DanmuText, bool IsSubtitle, long uid = 0)
         {
-
-            Task.Run(() =>
+            //弹幕直接排队到UI线程处理：轨道分配在UI线程串行执行（顺带修复多线程并发扫轨道的竞态），
+            //不再每条弹幕都起Task.Run+同步Invoke往返，弹幕洪峰时不阻塞弹幕接收线程
+            System.Windows.Application.Current.Dispatcher.BeginInvoke(new Action(() =>
             {
-                int Index = 0;
-                for (int i = 0; i < danMuOrbitInfos.Length; i++)
+                try
                 {
-                    if (danMuOrbitInfos[i] == null)
+                    //弹幕渲染器尚未初始化完成（窗口刚打开）或窗口已关闭时直接丢弃该条弹幕
+                    if (barrageConfig == null)
                     {
-                        danMuOrbitInfos[i] = new();
+                        return;
                     }
-                    if (danMuOrbitInfos[i].Time < Init.GetRunTime())
+                    int Index = 0;
+                    for (int i = 0; i < danMuOrbitInfos.Length; i++)
                     {
-                        Index = i;
-                        break;
+                        if (danMuOrbitInfos[i] == null)
+                        {
+                            danMuOrbitInfos[i] = new();
+                        }
+                        if (danMuOrbitInfos[i].Time < Init.GetRunTime())
+                        {
+                            Index = i;
+                            break;
+                        }
                     }
-                }
-                danMuOrbitInfos[Index].Time = (int)(Init.GetRunTime() + 5);
-                //非UI线程调用UI组件
-                System.Windows.Application.Current.Dispatcher.Invoke(async () =>
-                {
+                    danMuOrbitInfos[Index].Time = (int)(Init.GetRunTime() + 5);
                     //显示弹幕
                     barrageConfig.Barrage_Stroke(new DanMuCanvas.Models.MessageInformation() { content = DanmuText }, Index, IsSubtitle);
-                });
-
-            });
-
+                }
+                catch (Exception)
+                {
+                    //BeginInvoke是fire-and-forget，异常必须在此处消化，避免Dispatcher未处理异常导致程序崩溃
+                }
+            }));
         }
 
         private void FullScreenSwitch()

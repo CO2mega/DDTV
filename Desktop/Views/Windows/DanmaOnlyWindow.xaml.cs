@@ -137,18 +137,62 @@ namespace Desktop.Views.Windows
                 default:
                     break;
             }
-            Dispatcher.Invoke(() =>
+            //弹幕先进缓冲，200ms聚合一次批量刷新到UI，避免每条弹幕都同步Invoke阻塞弹幕接收线程
+            lock (_pendingDanmaLock)
             {
-                DanmaCollection.Add(msg);
-
-                while (DanmaCollection.Count > 50)
+                _pendingDanma.Add(msg);
+                if (_danmaFlushScheduled)
                 {
-                    DanmaCollection.RemoveAt(0);
+                    return;
                 }
-                DanmaView.SelectedItem = DanmaView.Items[DanmaView.Items.Count - 1];
-
-                DanmaView.ScrollIntoView(DanmaView.SelectedItem);
+                _danmaFlushScheduled = true;
+            }
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(200);
+                try
+                {
+                    await Dispatcher.InvokeAsync(FlushPendingDanma);
+                }
+                catch (Exception)
+                {
+                    //窗口已关闭等情况忽略
+                }
             });
+        }
+
+        /// <summary>
+        /// 待刷新的弹幕缓冲
+        /// </summary>
+        private readonly List<DanmaOnly> _pendingDanma = new();
+        private readonly object _pendingDanmaLock = new();
+        private bool _danmaFlushScheduled = false;
+
+        /// <summary>
+        /// 将缓冲的弹幕批量刷新到界面（仅在UI线程执行）
+        /// </summary>
+        private void FlushPendingDanma()
+        {
+            List<DanmaOnly> msgs;
+            lock (_pendingDanmaLock)
+            {
+                msgs = new List<DanmaOnly>(_pendingDanma);
+                _pendingDanma.Clear();
+                _danmaFlushScheduled = false;
+            }
+            foreach (var m in msgs)
+            {
+                DanmaCollection.Add(m);
+            }
+            while (DanmaCollection.Count > 50)
+            {
+                DanmaCollection.RemoveAt(0);
+            }
+            if (DanmaView.Items.Count > 0)
+            {
+                DanmaView.SelectedItem = DanmaView.Items[DanmaView.Items.Count - 1];
+                DanmaView.ScrollIntoView(DanmaView.SelectedItem);
+            }
         }
 
         public class DanmaOnly

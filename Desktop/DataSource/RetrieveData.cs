@@ -73,6 +73,18 @@ namespace Desktop.DataSource
                         return;
                     }
 
+                    //卡片构建和UID集合计算放在UI线程外执行（字符串格式化/时间计算不占UI线程）
+                    List<DataCard> newCards = new List<DataCard>(Cards.completeInfoList.Count);
+                    foreach (var item in Cards.completeInfoList)
+                    {
+                        newCards.Add(CreateDataCard(item));
+                    }
+                    HashSet<long> webUidSet = new HashSet<long>();
+                    foreach (var item in Cards.completeInfoList)
+                    {
+                        webUidSet.Add(item.uid);
+                    }
+
                 Application.Current.Dispatcher.Invoke(() =>
                 {
                     // 根据总数算一下需要多少页
@@ -83,37 +95,33 @@ namespace Desktop.DataSource
                         DataPage.UpdatePageCount(DataPage.PageCount);
                     }
 
-                    // 1. 先 diff 出本地有、但服务端已经删掉的房间，从 UI 里移除
-                    List<long> _uid_Web = new List<long>();
-                    foreach (var item in Cards.completeInfoList)
+                    // 1. 先 diff 出本地有、但服务端已经删掉的房间，从 UI 里移除（HashSet单趟O(n)，不再逐卡FirstOrDefault）
+                    List<DataCard> toRemove = new List<DataCard>();
+                    foreach (var card in Views.Pages.DataPage.CardsCollection)
                     {
-                        _uid_Web.Add(item.uid);
+                        if (!webUidSet.Contains(card.Uid))
+                        {
+                            toRemove.Add(card);
+                        }
                     }
-                    List<long> _uid_local = new List<long>();
-                    foreach (var item in Views.Pages.DataPage.CardsCollection)
+                    foreach (var card in toRemove)
                     {
-                        _uid_local.Add(item.Uid);
-                    }
-                    List<long> result = _uid_local.Except(_uid_Web).ToList();
-                    foreach (var item in result)
-                    {
-                        Views.Pages.DataPage.CardsCollection.Remove(Views.Pages.DataPage.CardsCollection.FirstOrDefault(i => i.Uid == item));
+                        Views.Pages.DataPage.CardsCollection.Remove(card);
                     }
 
                     // 2. 按服务端已排序的列表做索引对齐
                     // Core 层 GetCardListClone 已经排好序，直接按索引一一对应即可
                     int i = 0;
-                    for (; i < Cards.completeInfoList.Count && i < Views.Pages.DataPage.CardsCollection.Count; i++)
+                    for (; i < newCards.Count && i < Views.Pages.DataPage.CardsCollection.Count; i++)
                     {
-                        var item = Cards.completeInfoList[i];
-                        var newCard = CreateDataCard(item);
+                        var newCard = newCards[i];
 
-                        if (Views.Pages.DataPage.CardsCollection[i].Uid == item.uid)
+                        if (Views.Pages.DataPage.CardsCollection[i].Uid == newCard.Uid)
                         {
-                            // 位置正确，检查属性是否有变化
+                            // 位置正确，检查属性是否有变化；有变化时就地更新属性（不Replace，避免卡片容器重建）
                             if (HasSignificantChanges(Views.Pages.DataPage.CardsCollection[i], newCard))
                             {
-                                Views.Pages.DataPage.CardsCollection[i] = newCard;
+                                UpdateCard(Views.Pages.DataPage.CardsCollection[i], newCard);
                             }
                         }
                         else
@@ -122,7 +130,7 @@ namespace Desktop.DataSource
                             int existingIndex = -1;
                             for (int j = i + 1; j < Views.Pages.DataPage.CardsCollection.Count; j++)
                             {
-                                if (Views.Pages.DataPage.CardsCollection[j].Uid == item.uid)
+                                if (Views.Pages.DataPage.CardsCollection[j].Uid == newCard.Uid)
                                 {
                                     existingIndex = j;
                                     break;
@@ -134,7 +142,7 @@ namespace Desktop.DataSource
                                 Views.Pages.DataPage.CardsCollection.Move(existingIndex, i);
                                 if (HasSignificantChanges(Views.Pages.DataPage.CardsCollection[i], newCard))
                                 {
-                                    Views.Pages.DataPage.CardsCollection[i] = newCard;
+                                    UpdateCard(Views.Pages.DataPage.CardsCollection[i], newCard);
                                 }
                             }
                             else
@@ -146,13 +154,13 @@ namespace Desktop.DataSource
                     }
 
                     // 3. 服务端还有多的，Append
-                    for (; i < Cards.completeInfoList.Count; i++)
+                    for (; i < newCards.Count; i++)
                     {
-                        Views.Pages.DataPage.CardsCollection.Add(CreateDataCard(Cards.completeInfoList[i]));
+                        Views.Pages.DataPage.CardsCollection.Add(newCards[i]);
                     }
 
                     // 4. 本地还有多的，从末尾删除
-                    while (Views.Pages.DataPage.CardsCollection.Count > Cards.completeInfoList.Count)
+                    while (Views.Pages.DataPage.CardsCollection.Count > newCards.Count)
                     {
                         Views.Pages.DataPage.CardsCollection.RemoveAt(Views.Pages.DataPage.CardsCollection.Count - 1);
                     }
@@ -183,6 +191,28 @@ namespace Desktop.DataSource
                     || oldCard.DownloadSpe_str != newCard.DownloadSpe_str
                     || oldCard.LiveTime != newCard.LiveTime
                     || oldCard.LiveTime_str != newCard.LiveTime_str;
+            }
+
+            /// <summary>
+            /// 把新卡片的数据就地更新到现有卡片实例上（通过属性赋值触发绑定更新，
+            /// 避免Replace整个对象导致的CollectionChanged和卡片容器重建）
+            /// </summary>
+            private static void UpdateCard(DataCard target, DataCard source)
+            {
+                target.Room_Id = source.Room_Id;
+                target.Title = source.Title;
+                target.Nickname = source.Nickname;
+                target.IsRec = source.IsRec;
+                target.IsDanmu = source.IsDanmu;
+                target.IsRemind = source.IsRemind;
+                target.Rec_Status = source.Rec_Status;
+                target.Live_Status = source.Live_Status;
+                target.DownloadSpe = source.DownloadSpe;
+                target.DownloadSpe_str = source.DownloadSpe_str;
+                target.IsDownload = source.IsDownload;
+                target.LiveTime = source.LiveTime;
+                target.LiveTime_str = source.LiveTime_str;
+                target.IsDanmaRecording = source.IsDanmaRecording;
             }
 
             /// <summary>

@@ -27,10 +27,12 @@ namespace Desktop.Views.Windows
             InitializeComponent();
             Task.Run(() =>
             {
+                //网络请求都在后台线程完成，UI线程只负责赋值，避免同步HTTP卡住界面
                 _nickname = RoomInfo.GetNickname(_uid);
+                string title = RoomInfo.GetTitle(_uid);
                 Dispatcher.Invoke(() =>
                 {
-                    this.Title = RoomInfo.GetTitle(_uid);
+                    this.Title = title;
                     UI_TitleBar.Title = $"{_nickname}({_room_id}) - {this.Title}【WEB兼容模式】(可能由于该直播间只有FLV流或者网络质量不佳)";
                 });
             });

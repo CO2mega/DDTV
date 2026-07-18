@@ -29,6 +29,25 @@ namespace Desktop.Views.Windows.DanMuCanvas.BarrageParameters
 
         #region 运行时
         private Canvas canvas;
+        /// <summary>
+        /// 字体缓存（避免每条弹幕都访问磁盘和重复解析字体文件）
+        /// </summary>
+        private static FontFamily _cachedTypeface = null;
+        private static DateTime _typefaceCheckTime = DateTime.MinValue;
+        /// <summary>
+        /// 获取自定义字体，检查结果缓存5秒
+        /// </summary>
+        private static FontFamily GetTypefaceFontFamily()
+        {
+            if ((DateTime.Now - _typefaceCheckTime).TotalSeconds > 5)
+            {
+                _typefaceCheckTime = DateTime.Now;
+                _cachedTypeface = File.Exists("./typeface.ttf")
+                    ? new FontFamily(new Uri("file:///" + System.IO.Path.GetFullPath("./")), "./#typeface")
+                    : null;
+            }
+            return _cachedTypeface;
+        }
         #endregion
 
         #region 初始化
@@ -47,14 +66,15 @@ namespace Desktop.Views.Windows.DanMuCanvas.BarrageParameters
         public void Barrage_Stroke(MessageInformation contentlist, int Index, bool IsSubtitle = false)
         {
             height = Index * Config.Core_RunConfig._PlayWindowDanmaFontSize;
+            FontFamily typeface = GetTypefaceFontFamily();
             Grid grid = new Grid();
             grid.Resources.Add("Stroke", new SolidColorBrush(Colors.Black));
             for (int i = 0; i < 4; i++)
             {
                 TextBlock strokeTextBlock = new TextBlock();
-                if (File.Exists("./typeface.ttf"))
+                if (typeface != null)
                 {
-                    strokeTextBlock.FontFamily = new FontFamily(new Uri("file:///" + System.IO.Path.GetFullPath("./")), "./#typeface");
+                    strokeTextBlock.FontFamily = typeface;
                 }
                 strokeTextBlock.Margin = new Thickness(i == 0 ? -2 : 0, i == 1 ? -2 : 0, i == 2 ? -2 : 0, i == 3 ? -2 : 0);
                 strokeTextBlock.Text = !string.IsNullOrEmpty(contentlist.nickName) ? $"{contentlist.nickName}:{contentlist.content}" : contentlist.content;
@@ -64,9 +84,9 @@ namespace Desktop.Views.Windows.DanMuCanvas.BarrageParameters
                 grid.Children.Add(strokeTextBlock);
             }
             TextBlock textblock = new TextBlock();
-            if (File.Exists("./typeface.ttf"))
+            if (typeface != null)
             {
-                textblock.FontFamily = new FontFamily(new Uri("file:///" + System.IO.Path.GetFullPath("./")), "./#typeface");
+                textblock.FontFamily = typeface;
             }
 
             if (!string.IsNullOrEmpty(contentlist.nickName))

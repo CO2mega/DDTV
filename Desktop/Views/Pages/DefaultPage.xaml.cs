@@ -51,6 +51,20 @@ public partial class DefaultPage
         //IP版本检测
         IpvDetectionTimer = new System.Threading.Timer(async _ => await IpvDetectionAsync(), null, 1, 1000 * 60 * 30);
         WarningMessageAnimation();
+        //页面卸载时释放定时器并退订事件，避免每次导航进入都多挂6个Timer和1个事件订阅
+        Unloaded += DefaultPage_Unloaded;
+    }
+
+    private void DefaultPage_Unloaded(object sender, System.Windows.RoutedEventArgs e)
+    {
+        RoomStatisticsTimer?.Dispose();
+        UpdateHardwareResourceUtilizationRateTimer?.Dispose();
+        UpdateRuntimeStatisticsTimer?.Dispose();
+        UpdateAnnouncementTimer?.Dispose();
+        ProxyDetectionTimer?.Dispose();
+        IpvDetectionTimer?.Dispose();
+        Core.RuntimeObject.Account.LoginFailureEvent -= Account_LoginFailureEvent;
+        Unloaded -= DefaultPage_Unloaded;
     }
 
     /// <summary>

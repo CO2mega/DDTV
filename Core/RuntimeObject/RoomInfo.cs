@@ -97,53 +97,55 @@ namespace Core.RuntimeObject
                     }
                     else
                     {
+                        //先物化为List，分页循环内用索引取值，避免Dictionary的ElementAt每次O(i)枚举导致整页O(n²)
+                        var pageList = roomList.ToList();
                         for (int i = page * quantity - quantity; i < roomList.Count && i < page * quantity; i++)
                         {
                             CardData.CompleteInfo completeInfo = new CardData.CompleteInfo();
-                            completeInfo.uid = roomList.ElementAt(i).Value.UID;
-                            completeInfo.roomId = roomList.ElementAt(i).Value.RoomId;
+                            completeInfo.uid = pageList[i].Value.UID;
+                            completeInfo.roomId = pageList[i].Value.RoomId;
                             completeInfo.userInfo = new()
                             {
-                                isAutoRec = roomList.ElementAt(i).Value.IsAutoRec,
-                                description = roomList.ElementAt(i).Value.Description,
-                                isRecDanmu = roomList.ElementAt(i).Value.IsRecDanmu,
-                                isRemind = roomList.ElementAt(i).Value.IsRemind,
-                                name = roomList.ElementAt(i).Value.Name,
-                                sex = roomList.ElementAt(i).Value.sex.Value,
-                                sign = roomList.ElementAt(i).Value.sign.Value,
-                                uid = roomList.ElementAt(i).Value.UID,
-                                appointmentRecord = roomList.ElementAt(i).Value.AppointmentRecord,
-                                RoomCutAccordingToSize = roomList.ElementAt(i).Value.RoomCutAccordingToSize,
-                                RoomCutAccordingToTime = roomList.ElementAt(i).Value.RoomCutAccordingToTime
+                                isAutoRec = pageList[i].Value.IsAutoRec,
+                                description = pageList[i].Value.Description,
+                                isRecDanmu = pageList[i].Value.IsRecDanmu,
+                                isRemind = pageList[i].Value.IsRemind,
+                                name = pageList[i].Value.Name,
+                                sex = pageList[i].Value.sex.Value,
+                                sign = pageList[i].Value.sign.Value,
+                                uid = pageList[i].Value.UID,
+                                appointmentRecord = pageList[i].Value.AppointmentRecord,
+                                RoomCutAccordingToSize = pageList[i].Value.RoomCutAccordingToSize,
+                                RoomCutAccordingToTime = pageList[i].Value.RoomCutAccordingToTime
                             };
                             completeInfo.roomInfo = new CardData.CompleteInfo.RoomInfo()
                             {
-                                areaName = roomList.ElementAt(i).Value.area_v2_name.Value,
-                                attention = roomList.ElementAt(i).Value.attention.Value,
-                                coverFromUser = roomList.ElementAt(i).Value.cover_from_user.Value,
-                                face = roomList.ElementAt(i).Value.face.Value,
-                                keyFrame = roomList.ElementAt(i).Value.keyframe.Value,
-                                liveStatus = roomList.ElementAt(i).Value.live_status.Value == 1 ? true : false,
-                                liveTime = roomList.ElementAt(i).Value.live_time.Value,
-                                roomId = roomList.ElementAt(i).Value.RoomId,
-                                shortId = roomList.ElementAt(i).Value.short_id.Value,
-                                tags = roomList.ElementAt(i).Value.tags.Value,
-                                title = roomList.ElementAt(i).Value.Title.Value,
-                                url = $"https://live.bilibili.com/{roomList.ElementAt(i).Value.RoomId}"
+                                areaName = pageList[i].Value.area_v2_name.Value,
+                                attention = pageList[i].Value.attention.Value,
+                                coverFromUser = pageList[i].Value.cover_from_user.Value,
+                                face = pageList[i].Value.face.Value,
+                                keyFrame = pageList[i].Value.keyframe.Value,
+                                liveStatus = pageList[i].Value.live_status.Value == 1 ? true : false,
+                                liveTime = pageList[i].Value.live_time.Value,
+                                roomId = pageList[i].Value.RoomId,
+                                shortId = pageList[i].Value.short_id.Value,
+                                tags = pageList[i].Value.tags.Value,
+                                title = pageList[i].Value.Title.Value,
+                                url = $"https://live.bilibili.com/{pageList[i].Value.RoomId}"
                             };
                             completeInfo.taskStatus = new CardData.CompleteInfo.TaskStatus()
                             {
-                                downloadSize = roomList.ElementAt(i).Value.DownInfo.DownloadSize,
-                                endTime = roomList.ElementAt(i).Value.DownInfo.EndTime,
-                                isDownload = roomList.ElementAt(i).Value.DownInfo.IsDownload,
-                                startTime = roomList.ElementAt(i).Value.DownInfo.StartTime,
-                                title = roomList.ElementAt(i).Value.Title.Value,
-                                status = roomList.ElementAt(i).Value.DownInfo.Status,
-                                downloadRate = roomList.ElementAt(i).Value.DownInfo.RealTimeDownloadSpe,
+                                downloadSize = pageList[i].Value.DownInfo.DownloadSize,
+                                endTime = pageList[i].Value.DownInfo.EndTime,
+                                isDownload = pageList[i].Value.DownInfo.IsDownload,
+                                startTime = pageList[i].Value.DownInfo.StartTime,
+                                title = pageList[i].Value.Title.Value,
+                                status = pageList[i].Value.DownInfo.Status,
+                                downloadRate = pageList[i].Value.DownInfo.RealTimeDownloadSpe,
                                 isDanma = false
                             };
 
-                            if (roomList.ElementAt(i).Value.DownInfo.LiveChatListener != null && roomList.ElementAt(i).Value.DownInfo.LiveChatListener.Register.Contains("DetectRoom_LiveStart"))
+                            if (pageList[i].Value.DownInfo.LiveChatListener != null && pageList[i].Value.DownInfo.LiveChatListener.Register.Contains("DetectRoom_LiveStart"))
                             {
                                 completeInfo.taskStatus.isDanma = true;
                             }
@@ -281,15 +283,7 @@ namespace Core.RuntimeObject
         /// <returns></returns>
         public static bool GetCardForUID(long UID, ref RoomCardClass roomCard)
         {
-            roomCard = roomInfos.FirstOrDefault(x => x.Key == UID).Value;
-            if (roomCard != null)
-            {
-                return true;
-            }
-            else
-            {
-                return false;
-            }
+            return roomInfos.TryGetValue(UID, out roomCard);
         }
         /// <summary>
         /// 通过房间号获取房间卡
@@ -298,6 +292,14 @@ namespace Core.RuntimeObject
         /// <returns></returns>
         public static bool GetCardForRoomId(long RoomId, ref RoomCardClass roomCard)
         {
+            //优先走RoomId→UID索引O(1)查找；命中后校验RoomId仍一致（房间卡可能被原地修改导致索引过期）
+            if (_roomIdToUid.TryGetValue(RoomId, out long uid)
+                && roomInfos.TryGetValue(uid, out roomCard)
+                && roomCard.RoomId == RoomId)
+            {
+                return true;
+            }
+            //兜底线性扫描（索引未覆盖或已过期时保证行为与原来一致）
             roomCard = roomInfos.FirstOrDefault(x => x.Value.RoomId == RoomId).Value;
             if (roomCard != null)
             {
@@ -583,6 +585,10 @@ namespace Core.RuntimeObject
         private static object RoomCardLock = new object();
 
         /// <summary>
+        /// RoomId→UID索引（RoomId有效时维护，加速GetCardForRoomId查找）
+        /// </summary>
+        private static ConcurrentDictionary<long, long> _roomIdToUid = new();
+        /// <summary>
         /// 通过Uid设置RoomCard的值
         /// </summary>
         /// <param name="UID">用户的Uid</param>
@@ -592,16 +598,17 @@ namespace Core.RuntimeObject
         {
             lock (RoomCardLock)
             {
-                foreach (var key in roomInfos.Keys)
+                //roomInfos的key就是UID，直接upsert，无需遍历查找
+                if (roomInfos.TryGetValue(UID, out RoomCardClass? oldCard) && oldCard.RoomId > 0 && oldCard.RoomId != value.RoomId)
                 {
-                    if (key == UID)
-                    {
-                        roomInfos[key] = value;
-                        return true;
-                    }
+                    //RoomId变化时清理旧索引（同UID换房间号的极端情况）
+                    _roomIdToUid.TryRemove(oldCard.RoomId, out _);
                 }
-
-                roomInfos.TryAdd(UID, value);
+                roomInfos[UID] = value;
+                if (value != null && value.RoomId > 0)
+                {
+                    _roomIdToUid[value.RoomId] = UID;
+                }
                 return true;
             }
         }
@@ -689,6 +696,11 @@ namespace Core.RuntimeObject
                     RoomCardClass roomCardClass = new();
                     if (roomInfos.TryRemove(roomCard.UID, out roomCardClass))
                     {
+                        //同步清理RoomId索引
+                        if (roomCardClass != null && roomCardClass.RoomId > 0)
+                        {
+                            _roomIdToUid.TryRemove(roomCardClass.RoomId, out _);
+                        }
                         Message = $"删除房间成功,UID:[{roomCard.UID}]";
                         OperationQueue.Add(Opcode.Room.SuccessfullyDeletedRoom, Message, roomCard.UID);
                         if (!Batch)

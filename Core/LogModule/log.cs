@@ -32,6 +32,17 @@ namespace Core.LogModule
         public static List<LogClass> LogList = new List<LogClass>();
         private static readonly object _logListLock = new object();
 
+        /// <summary>
+        /// 获取日志列表快照（加锁拷贝，调用方可安全遍历，不受消费者线程写入影响）
+        /// </summary>
+        public static LogClass[] GetLogListSnapshot()
+        {
+            lock (_logListLock)
+            {
+                return LogList.ToArray();
+            }
+        }
+
         private static ConsoleWriter console = new ConsoleWriter();
 
         /// <summary>
