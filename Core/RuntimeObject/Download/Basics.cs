@@ -53,7 +53,7 @@ namespace Core.RuntimeObject.Download
                     if (result.TaskState == DownloadTaskState.SuccessfulButNotStream || result.TaskState == DownloadTaskState.NoHLSStreamExists)
                     {
                         //落到FLV都还没流，应该是下播了但是没关直播间，这里手动等15秒再检测，不然疯狂刷屏
-                        Thread.Sleep(1000 * 15);
+                        await Task.Delay(1000 * 15);
                     }
                     break;
                 case RecordingMode.Auto:
@@ -67,7 +67,7 @@ namespace Core.RuntimeObject.Download
                         if (result.TaskState == DownloadTaskState.SuccessfulButNotStream || result.TaskState == DownloadTaskState.NoHLSStreamExists)
                         {
                             //落到FLV都还没流，应该是下播了但是没关直播间，这里手动等15秒再检测，不然疯狂刷屏
-                            Thread.Sleep(1000 * 15);
+                            await Task.Delay(1000 * 15);
                         }
                     }
                     break;

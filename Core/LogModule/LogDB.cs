@@ -131,6 +131,54 @@ namespace Core.LogModule
         public class Operate
         {
             /// <summary>
+            /// 批量增加日志数据库记录（单事务写入，由日志消费者线程调用，避免每条日志一次fsync）
+            /// </summary>
+            /// <param name="logClasses">日志列表</param>
+            /// <returns></returns>
+            public static bool AddDbBatch(List<LogClass> logClasses)
+            {
+                try
+                {
+                    if (SQLiteConn == null)
+                    {
+                        SQLiteConn = new();
+                    }
+                    lock (SQLiteConn)
+                    {
+                        if (SQLiteConn.State != ConnectionState.Open || logClasses == null || logClasses.Count == 0)
+                        {
+                            return false;
+                        }
+                        using SqliteTransaction transaction = SQLiteConn.BeginTransaction();
+                        using SqliteCommand cmd = new("insert into Log(Source, Type, Message, Time, RunningTime) values (@Source, @Type, @Message, @Time ,@RunningTime)", SQLiteConn, transaction);
+                        SqliteParameter pSource = new("@Source", DbType.String);
+                        SqliteParameter pType = new("@Type", DbType.String);
+                        SqliteParameter pMessage = new("@Message", DbType.String);
+                        SqliteParameter pTime = new("@Time", DbType.DateTime);
+                        SqliteParameter pRunningTime = new("@RunningTime", DbType.Int64);
+                        cmd.Parameters.AddRange(new[] { pSource, pType, pMessage, pTime, pRunningTime });
+                        foreach (LogClass logClass in logClasses)
+                        {
+                            if (logClass == null || logClass.Source == null)
+                                continue;
+                            pSource.Value = logClass.Source;
+                            pType.Value = logClass.Type;
+                            pMessage.Value = logClass.Message;
+                            pTime.Value = logClass.Time;
+                            pRunningTime.Value = logClass.RunningTime;
+                            cmd.ExecuteNonQuery();
+                        }
+                        transaction.Commit();
+                        return true;
+                    }
+                }
+                catch (Exception e)
+                {
+                    Log.Error(nameof(LogDB), $"日志数据库批量写入出现未知错误:{e.ToString()}");
+                    return false;
+                }
+            }
+            /// <summary>
             /// 增加日志数据库记录
             /// </summary>
             /// <param name="logClass"></param>

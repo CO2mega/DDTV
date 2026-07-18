@@ -42,53 +42,61 @@ namespace Server.WebAppServices
         }
 
         /// <summary>
-        /// WebSocket数据发送
+        /// WebHook推送用的共享HttpClient，避免每条消息新建连接导致socket耗尽
+        /// </summary>
+        private static readonly HttpClient _webHookClient = new HttpClient()
+        {
+            Timeout = TimeSpan.FromSeconds(8)
+        };
+
+        /// <summary>
+        /// WebSocket数据发送（仅由WebSocketQueue的单消费者线程调用，逐客户端串行await发送，
+        /// 避免同一socket并发SendAsync导致消息丢失；发送失败的连接直接移除）
         /// </summary>
         /// <param name="message">要推送的文本内容</param>
-        public static void WS_Send(string message)
+        public static async Task WS_Send(string message)
         {
-            WebHookSendAsync(message);
+            WebHookSend(message);
             ArraySegment<byte> buffer = new ArraySegment<byte>(Encoding.UTF8.GetBytes(message));
-            foreach (WebSocket item in Middleware.WebSocketControl.webSockets)
+            foreach (WebSocket item in Middleware.WebSocketControl.GetWebSocketSnapshot())
             {
                 try
                 {
-                    if (item.State == WebSocketState.Open || item.State == WebSocketState.Connecting)
-                        item.SendAsync(buffer, WebSocketMessageType.Text, true, CancellationToken.None);
+                    if (item.State == WebSocketState.Open)
+                        await Middleware.WebSocketControl.SendAsyncSafe(item, buffer, WebSocketMessageType.Text, true, CancellationToken.None);
+                    else if (item.State != WebSocketState.Connecting)
+                        Middleware.WebSocketControl.RemoveWebSocket(item);
                 }
                 catch (System.Exception ex)
                 {
-                    Log.Warn(nameof(WS_Send), "WebSocket信息推送失败", ex, false);
+                    Log.Warn(nameof(WS_Send), "WebSocket信息推送失败，已移除该连接", ex, false);
+                    Middleware.WebSocketControl.RemoveWebSocket(item);
                 }
             }
         }
 
         /// <summary>
-        /// WebHook数据推送
+        /// WebHook数据推送（后台异步发送，不阻塞调用方）
         /// </summary>
         /// <param name="message">要推送的文本内容</param>
-        public static async Task WebHookSendAsync(string message)
+        private static void WebHookSend(string message)
         {
-            await Task.Run(async () =>
+            if (Core.Config.Core_RunConfig._WebHookSwitch && !string.IsNullOrEmpty(Core.Config.Core_RunConfig._WebHookAddress))
             {
-                if (Core.Config.Core_RunConfig._WebHookSwitch && !string.IsNullOrEmpty(Core.Config.Core_RunConfig._WebHookAddress))
+                _ = Task.Run(async () =>
                 {
                     try
                     {
-                        using (HttpClient client = new HttpClient())
-                        {
-                            client.Timeout = new TimeSpan(0, 0, 8);
-                            var data = new StringContent(message, Encoding.UTF8, "application/json");
-                            var response = await client.PostAsync(Core.Config.Core_RunConfig._WebHookAddress, data);
-                            string result = await response.Content.ReadAsStringAsync();
-                        }
+                        var data = new StringContent(message, Encoding.UTF8, "application/json");
+                        var response = await _webHookClient.PostAsync(Core.Config.Core_RunConfig._WebHookAddress, data);
+                        string result = await response.Content.ReadAsStringAsync();
                     }
                     catch (Exception ex)
                     {
-                        Log.Error(nameof(WebHookSendAsync), "WebHook信息推送失败", ex, false);
+                        Log.Error(nameof(WebHookSend), "WebHook信息推送失败", ex, false);
                     }
-                }
-            });
+                });
+            }
         }
 
 

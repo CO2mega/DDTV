@@ -7,6 +7,8 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Linq;
 using System.Text;
+using System.Threading;
+using System.Threading.Channels;
 using System.Threading.Tasks;
 using static Core.LogModule.LogClass;
 
@@ -32,18 +34,21 @@ namespace Core.LogModule
 
         private static ConsoleWriter console = new ConsoleWriter();
 
-
-        private static void Log_LogAddEvent(object? sender, EventArgs e)
+        /// <summary>
+        /// 日志队列（单消费者模式，业务线程写入后立即返回，避免日志IO阻塞业务）
+        /// </summary>
+        private static readonly Channel<LogClass> _logChannel = Channel.CreateBounded<LogClass>(new BoundedChannelOptions(10000)
         {
-            lock (_logListLock)
-            {
-                LogList.Insert(0, (LogClass)sender);
-                while(LogList.Count > 100)
-                {
-                    LogList.RemoveAt(LogList.Count - 1);
-                }
-            }
-        }
+            FullMode = BoundedChannelFullMode.DropOldest,
+            SingleReader = true,
+            SingleWriter = false
+        });
+        private static int _consumerStarted = 0;
+        /// <summary>
+        /// 因队列满被丢弃的日志条数
+        /// </summary>
+        private static long _droppedCount = 0;
+
         /// <summary>
         /// Log系统初始化
         /// </summary>
@@ -54,7 +59,6 @@ namespace Core.LogModule
             LogLevel = log;
             Tools.Time.Config.Init();
             LogDB.Config.SQLiteInit(false);
-             Log.LogAddEvent += Log_LogAddEvent;
 #if DEBUG
             Info(nameof(Log), $"{Init.InitType}|{Init.Ver}【Dev】(编译时间:{Init.CompiledVersion})");
             Info(nameof(Log), "Log系统初始化完成（Dev模式）");
@@ -154,99 +158,163 @@ namespace Core.LogModule
             _LogPrint(logClass);
         }
 
-        private static async Task _LogPrint(LogClass logClass)
+        /// <summary>
+        /// 写入日志队列并立即返回，实际的控制台/文件/数据库输出由独立消费者线程批量处理
+        /// </summary>
+        private static void _LogPrint(LogClass logClass)
         {
-            await Task.Run(() =>
+            if (logClass == null)
+                return;
+            //惰性启动消费者线程（保证LogInit之前的日志也能入队）
+            if (Interlocked.CompareExchange(ref _consumerStarted, 1, 0) == 0)
             {
-                if (logClass != null)
+                Task.Factory.StartNew(LogConsumerLoop, TaskCreationOptions.LongRunning);
+            }
+            if (!_logChannel.Writer.TryWrite(logClass))
+            {
+                Interlocked.Increment(ref _droppedCount);
+            }
+        }
+
+        /// <summary>
+        /// 日志消费者主循环：批量取出日志，统一做控制台输出、txt错误日志、SQLite批量写入和事件通知
+        /// </summary>
+        private static async Task LogConsumerLoop()
+        {
+            List<LogClass> batch = new(512);
+            List<LogClass> dbBatch = new(512);
+            while (await _logChannel.Reader.WaitToReadAsync())
+            {
+                try
                 {
-                    lock (console)
+                    batch.Clear();
+                    dbBatch.Clear();
+                    while (batch.Count < 512 && _logChannel.Reader.TryRead(out LogClass? item))
                     {
-                        if (logClass.Error)
+                        if (item != null)
+                            batch.Add(item);
+                    }
+                    bool hasErrorLog = false;
+                    foreach (LogClass logClass in batch)
+                    {
+                        try
                         {
-                            logClass.Message = logClass.Message + " ,详细信息已写入txt文本日志中";                      
-                            string ErrorText = $"\n{logClass.Time}:[{logClass.Type.ToString()}][{logClass.Source}][{logClass.RunningTime}]{logClass.Message}";
-                            if (logClass.exception != null)
+                            if (logClass.Error)
                             {
-                                ErrorText += $"错误堆栈\n{logClass.exception.ToString()}";
-                            }
-                            Task.Run(() =>
-                            {
-                                lock(LogDB.streamWriter) 
-                                { 
-                                    LogDB.streamWriter.WriteLine(ErrorText);
-                                    LogDB.streamWriter.Flush();
+                                logClass.Message = logClass.Message + " ,详细信息已写入txt文本日志中";
+                                if (LogDB.streamWriter != null)
+                                {
+                                    string ErrorText = $"\n{logClass.Time}:[{logClass.Type.ToString()}][{logClass.Source}][{logClass.RunningTime}]{logClass.Message}";
+                                    if (logClass.exception != null)
+                                    {
+                                        ErrorText += $"错误堆栈\n{logClass.exception.ToString()}";
+                                    }
+                                    lock (LogDB.streamWriter)
+                                    {
+                                        LogDB.streamWriter.WriteLine(ErrorText);
+                                    }
+                                    hasErrorLog = true;
                                 }
-                                
-                                //Thread.Sleep(100);
-                            });
-
-                        }
+                            }
 #if DEBUG
-                        if (true)
+                            if (true)
 #else
-                        if (logClass.Type <= LogLevel && logClass.Type != LogClass.LogType.Info_Transcod && logClass.IsDisplay && ( Config.Core_RunConfig._DebugMode || logClass.Type< LogType.Debug))
+                        if (logClass.Type <= LogLevel && logClass.Type != LogClass.LogType.Info_Transcod && logClass.IsDisplay && (Config.Core_RunConfig._DebugMode || logClass.Type < LogType.Debug))
 #endif
-                        {
-                            lock (_logListLock)
                             {
-                                LogList.Add(logClass);
-                            }
-                            string _ = $"{logClass.Time}:[{Enum.GetName(typeof(LogClass.LogType), (int)logClass.Type)}][{logClass.Source}]{logClass.Message}";
-                            console.Write($"{logClass.Time}:", ConsoleColor.White);
-
-                            switch (logClass.Type)
-                            {
-                                case LogClass.LogType.Error:
-                                    console.Write($"[{Enum.GetName(typeof(LogClass.LogType), (int)logClass.Type)}]", ConsoleColor.Red);
-                                    break;
-                                case LogClass.LogType.Error_IsAboutToHappen:
-                                    console.Write($"[{Enum.GetName(typeof(LogClass.LogType), (int)logClass.Type)}]", ConsoleColor.Red);
-                                    break;
-                                case LogClass.LogType.Warn:
-                                    console.Write($"[{Enum.GetName(typeof(LogClass.LogType), (int)logClass.Type)}]", ConsoleColor.Yellow);
-                                    break;
-                                case LogClass.LogType.Warn_RoomPatrol:
-                                    console.Write($"[{Enum.GetName(typeof(LogClass.LogType), (int)logClass.Type)}]", ConsoleColor.Yellow);
-                                    break;
-                                case LogClass.LogType.Info:
-                                    console.Write($"[{Enum.GetName(typeof(LogClass.LogType), (int)logClass.Type)}]", ConsoleColor.Green);
-                                    break;
-                                case LogClass.LogType.Info_Transcod:
-                                    console.Write($"[{Enum.GetName(typeof(LogClass.LogType), (int)logClass.Type)}]", ConsoleColor.Green);
-                                    break;
-                                case LogClass.LogType.Info_API:
-                                    console.Write($"[{Enum.GetName(typeof(LogClass.LogType), (int)logClass.Type)}]", ConsoleColor.Green);
-                                    break;
-                                default:
-                                    console.Write($"[{Enum.GetName(typeof(LogClass.LogType), (int)logClass.Type)}]", ConsoleColor.DarkGray);
-                                    break;
-                            }
-                            console.Write($"[{logClass.Source}]", ConsoleColor.DarkGray);
-                            console.WriteLine($"{logClass.Message}", ConsoleColor.White);
-
-                            LogAddEvent?.Invoke(logClass, EventArgs.Empty);
-
-                        }
-                        if (logClass.Type < LogClass.LogType.Trace)
-                        {
-                            Task.Run(() =>
-                            {
+                                lock (_logListLock)
+                                {
+                                    LogList.Insert(0, logClass);
+                                    while (LogList.Count > 100)
+                                    {
+                                        LogList.RemoveAt(LogList.Count - 1);
+                                    }
+                                }
+                                WriteConsole(logClass);
                                 try
                                 {
-                                    LogDB.Operate.AddDb(logClass);
+                                    LogAddEvent?.Invoke(logClass, EventArgs.Empty);
                                 }
-                                catch (Exception) { }
-                            });
+                                catch (Exception)
+                                {
+                                    //订阅者异常不能影响日志消费者线程
+                                }
+                            }
+                            if (logClass.Type < LogClass.LogType.Trace)
+                            {
+                                dbBatch.Add(logClass);
+                            }
+                        }
+                        catch (Exception)
+                        {
+                            //单条日志处理异常不影响整批
                         }
                     }
-
+                    //错误文本日志每批统一Flush一次，避免每条日志强制落盘
+                    if (hasErrorLog && LogDB.streamWriter != null)
+                    {
+                        lock (LogDB.streamWriter)
+                        {
+                            LogDB.streamWriter.Flush();
+                        }
+                    }
+                    //SQLite批量写入，一个事务代替每条日志一个事务
+                    if (dbBatch.Count > 0)
+                    {
+                        try
+                        {
+                            LogDB.Operate.AddDbBatch(dbBatch);
+                        }
+                        catch (Exception) { }
+                    }
+                    long dropped = Interlocked.Exchange(ref _droppedCount, 0);
+                    if (dropped > 0)
+                    {
+                        console.WriteLine($"[Log]日志产生速度超过消费速度，已丢弃{dropped}条", ConsoleColor.DarkYellow);
+                    }
                 }
-                else
+                catch (Exception)
                 {
-                    ;
+                    //整批处理出现异常（如磁盘写失败）时跳过该批，保证消费者线程不退出、日志系统不静默死亡
                 }
-            });
+            }
+        }
+
+        /// <summary>
+        /// 控制台彩色输出（仅由日志消费者线程调用，无需加锁）
+        /// </summary>
+        private static void WriteConsole(LogClass logClass)
+        {
+            console.Write($"{logClass.Time}:", ConsoleColor.White);
+            switch (logClass.Type)
+            {
+                case LogClass.LogType.Error:
+                    console.Write($"[{Enum.GetName(typeof(LogClass.LogType), (int)logClass.Type)}]", ConsoleColor.Red);
+                    break;
+                case LogClass.LogType.Error_IsAboutToHappen:
+                    console.Write($"[{Enum.GetName(typeof(LogClass.LogType), (int)logClass.Type)}]", ConsoleColor.Red);
+                    break;
+                case LogClass.LogType.Warn:
+                    console.Write($"[{Enum.GetName(typeof(LogClass.LogType), (int)logClass.Type)}]", ConsoleColor.Yellow);
+                    break;
+                case LogClass.LogType.Warn_RoomPatrol:
+                    console.Write($"[{Enum.GetName(typeof(LogClass.LogType), (int)logClass.Type)}]", ConsoleColor.Yellow);
+                    break;
+                case LogClass.LogType.Info:
+                    console.Write($"[{Enum.GetName(typeof(LogClass.LogType), (int)logClass.Type)}]", ConsoleColor.Green);
+                    break;
+                case LogClass.LogType.Info_Transcod:
+                    console.Write($"[{Enum.GetName(typeof(LogClass.LogType), (int)logClass.Type)}]", ConsoleColor.Green);
+                    break;
+                case LogClass.LogType.Info_API:
+                    console.Write($"[{Enum.GetName(typeof(LogClass.LogType), (int)logClass.Type)}]", ConsoleColor.Green);
+                    break;
+                default:
+                    console.Write($"[{Enum.GetName(typeof(LogClass.LogType), (int)logClass.Type)}]", ConsoleColor.DarkGray);
+                    break;
+            }
+            console.Write($"[{logClass.Source}]", ConsoleColor.DarkGray);
+            console.WriteLine($"{logClass.Message}", ConsoleColor.White);
         }
     }
 }

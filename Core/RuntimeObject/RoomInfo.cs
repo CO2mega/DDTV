@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.EntityFrameworkCore.Metadata.Internal;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -550,6 +551,34 @@ namespace Core.RuntimeObject
         public static ConcurrentDictionary<long, RoomCardClass> GetCardListDeepClone()
         {
             return roomInfos.DeepClone();
+        }
+        /// <summary>
+        /// 计算房间持久化字段（即写入房间配置文件的字段）的指纹，
+        /// 用于房间配置自动保存时判断是否有变化，避免每3秒全量克隆+序列化
+        /// </summary>
+        /// <returns>指纹字符串</returns>
+        public static string GetRoomPersistedFingerprint()
+        {
+            StringBuilder sb = new();
+            //按键排序保证指纹稳定，ConcurrentDictionary枚举本身线程安全
+            foreach (var item in roomInfos.OrderBy(x => x.Key))
+            {
+                RoomCardClass c = item.Value;
+                sb.Append(item.Key).Append('|')
+                  .Append(c.UID).Append('|')
+                  .Append(c.RoomId).Append('|')
+                  .Append(c.Name).Append('|')
+                  .Append(c.Description).Append('|')
+                  .Append(c.IsAutoRec).Append('|')
+                  .Append(c.IsRemind).Append('|')
+                  .Append(c.IsRecDanmu).Append('|')
+                  .Append(c.Like).Append('|')
+                  .Append(c.Shell).Append('|')
+                  .Append(c.AppointmentRecord).Append('|')
+                  .Append(c.RoomCutAccordingToSize).Append('|')
+                  .Append(c.RoomCutAccordingToTime).Append(';');
+            }
+            return sb.ToString();
         }
         private static object RoomCardLock = new object();
 

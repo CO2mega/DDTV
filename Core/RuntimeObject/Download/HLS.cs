@@ -25,7 +25,8 @@ namespace Core.RuntimeObject.Download
             DownloadTaskState hlsState = DownloadTaskState.Default;
             string File = string.Empty;
             Stopwatch stopWatch = new Stopwatch();
-            await Task.Run(() =>
+            //使用LongRunning独立线程执行同步录制循环，避免长期独占线程池线程（每个录制房间1个）
+            await Task.Factory.StartNew(() =>
             {
                 InitializeDownload(card, RoomCardClass.TaskType.HLS_AVC);
                 card.DownInfo.DownloadFileList.CurrentOperationVideoFile = string.Empty;
@@ -309,7 +310,7 @@ namespace Core.RuntimeObject.Download
                             return;
                     }
                 }
-            });
+            }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
             card.DownInfo.DownloadSize = 0;
             stopWatch.Stop();
             return (hlsState, File);

@@ -30,7 +30,7 @@ namespace Core.RuntimeObject.Download
                 File = $"{Config.Core_RunConfig._RecFileDirectory}{Core.Tools.KeyCharacterReplacement.ReplaceKeyword($"{Config.Core_RunConfig._DefaultLiverFolderName}/{Core.Config.Core_RunConfig._DefaultDataFolderName}{(string.IsNullOrEmpty(Core.Config.Core_RunConfig._DefaultDataFolderName) ? "" : "/")}{Config.Core_RunConfig._DefaultFileName}", DateTime.Now, card.UID)}_original.flv";
                 card.DownInfo.DownloadFileList.CurrentOperationVideoFile = string.Empty;
                 CreateDirectoryIfNotExists(File.Substring(0, File.LastIndexOf('/')));
-                Thread.Sleep(5);
+                await Task.Delay(5);
                 Stopwatch stopWatch = new Stopwatch();
                 stopWatch.Start();
                 long DownloadFileSizeForThisTask = 0;
@@ -165,7 +165,7 @@ namespace Core.RuntimeObject.Download
                             {
                                 int delayMs = (int)Math.Pow(2, retryCount) * 1000;
                                 Log.Info(nameof(DlwnloadHls_avc_flv), $"[{card.Name}({card.RoomId})]FLV流意外中断，{delayMs}ms后第{retryCount}次重试");
-                                Thread.Sleep(delayMs);
+                                await Task.Delay(delayMs);
                                 if (!GetFlvAvcUrl(card, Config.Core_RunConfig._DefaultResolution, out DlwnloadURL))
                                 {
                                     hlsState = DownloadTaskState.NoHLSStreamExists;
@@ -181,7 +181,7 @@ namespace Core.RuntimeObject.Download
                             {
                                 int delayMs = (int)Math.Pow(2, retryCount) * 1000;
                                 Log.Warn(nameof(DlwnloadHls_avc_flv), $"[{card.Name}({card.RoomId})]FLV下载HTTP错误，{delayMs}ms后第{retryCount}次重试：{ex.Message}");
-                                Thread.Sleep(delayMs);
+                                await Task.Delay(delayMs);
                                 if (!GetFlvAvcUrl(card, Config.Core_RunConfig._DefaultResolution, out DlwnloadURL))
                                 {
                                     hlsState = DownloadTaskState.NoHLSStreamExists;
@@ -199,7 +199,7 @@ namespace Core.RuntimeObject.Download
                             {
                                 int delayMs = (int)Math.Pow(2, retryCount) * 1000;
                                 Log.Warn(nameof(DlwnloadHls_avc_flv), $"[{card.Name}({card.RoomId})]FLV下载IO错误，{delayMs}ms后第{retryCount}次重试：{ex.Message}");
-                                Thread.Sleep(delayMs);
+                                await Task.Delay(delayMs);
                                 if (!GetFlvAvcUrl(card, Config.Core_RunConfig._DefaultResolution, out DlwnloadURL))
                                 {
                                     hlsState = DownloadTaskState.NoHLSStreamExists;
@@ -217,7 +217,7 @@ namespace Core.RuntimeObject.Download
                             {
                                 int delayMs = (int)Math.Pow(2, retryCount) * 1000;
                                 Log.Warn(nameof(DlwnloadHls_avc_flv), $"[{card.Name}({card.RoomId})]FLV下载超时，{delayMs}ms后第{retryCount}次重试");
-                                Thread.Sleep(delayMs);
+                                await Task.Delay(delayMs);
                                 if (!GetFlvAvcUrl(card, Config.Core_RunConfig._DefaultResolution, out DlwnloadURL))
                                 {
                                     hlsState = DownloadTaskState.NoHLSStreamExists;

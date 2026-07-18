@@ -263,6 +263,14 @@ namespace Core
 
         }
         /// <summary>
+        /// 上次生成的配置文本（用于无变化时跳过文件读写）
+        /// </summary>
+        private static string _lastGeneratedConfig = null;
+        /// <summary>
+        /// 上次强制校验配置文件的时间（兜底）
+        /// </summary>
+        private static DateTime _lastConfigForceCheck = DateTime.MinValue;
+        /// <summary>
         /// 把当前配置写入到持久化配置文件
         /// </summary>
         public static void WriteConfiguration()
@@ -277,17 +285,26 @@ namespace Core
                         newConfig.AppendLine($"{item.Key}={item.Value.GetValue(null)}");
                     }
                 }
+                string newConfigText = newConfig.ToString();
+                //生成内容无变化且文件存在时直接跳过，避免每3秒读盘比对
+                bool forceDue = (DateTime.Now - _lastConfigForceCheck) > TimeSpan.FromMinutes(10);
+                if (!forceDue && newConfigText == _lastGeneratedConfig && File.Exists(Core_RunConfig._ConfigurationFile))
+                {
+                    return;
+                }
                 string existingConfig = File.Exists(Core_RunConfig._ConfigurationFile) ? File.ReadAllText(Core_RunConfig._ConfigurationFile) : string.Empty;
-                if (existingConfig != newConfig.ToString())
+                if (existingConfig != newConfigText)
                 {
                     using (StreamWriter file = new StreamWriter(Core_RunConfig._ConfigurationFile))
                     {
-                        file.Write(newConfig.ToString());
+                        file.Write(newConfigText);
                     }
                     string msg = $"配置信息发生变化，写入文件";
                     OperationQueue.Add(Opcode.Config.UpdateToConfigurationFile, msg);
                     Log.Info(nameof(ReadConfiguration), $"配置信息发生变化，写入文件");
                 }
+                _lastGeneratedConfig = newConfigText;
+                _lastConfigForceCheck = DateTime.Now;
             }
         }
 
@@ -300,6 +317,14 @@ namespace Core
         public class RoomConfig
         {
             private static object _RoomConfigurationLock = new();
+            /// <summary>
+            /// 上次保存时房间持久化字段的指纹
+            /// </summary>
+            private static string _lastRoomFingerprint = null;
+            /// <summary>
+            /// 上次强制全量保存的时间（兜底，防止指纹逻辑遗漏变更）
+            /// </summary>
+            private static DateTime _lastRoomForceSave = DateTime.MinValue;
 
 
             /// <summary>
@@ -368,6 +393,14 @@ namespace Core
             {
                 lock (_RoomConfigurationLock)
                 {
+                    string filePath = $"{Core_RunConfig._RoomConfigFile}";
+                    //先用持久化字段指纹判断是否有变化，无变化且文件存在时直接跳过，避免每3秒全量克隆+序列化+读盘
+                    string fingerprint = _Room.GetRoomPersistedFingerprint();
+                    bool forceDue = (DateTime.Now - _lastRoomForceSave) > TimeSpan.FromMinutes(10);
+                    if (!forceDue && fingerprint == _lastRoomFingerprint && File.Exists(filePath))
+                    {
+                        return;
+                    }
                     RoomListDiscard roomListDiscard = new RoomListDiscard();
                     var roomInfos = _Room.GetCardListClone();
                     var sorted = roomInfos.OrderBy(item => item.Key);
@@ -378,7 +411,6 @@ namespace Core
                     // 支持基本拉丁语和中文字符
                     string jsonString = JsonSerializer.Serialize(roomListDiscard, new JsonSerializerOptions() { Encoder = JavaScriptEncoder.Create(UnicodeRanges.All), WriteIndented = true });
 
-                    string filePath = $"{Core_RunConfig._RoomConfigFile}";
                     if (File.Exists(filePath))
                     {
                         string existingContent = File.ReadAllText(filePath, Encoding.UTF8);
@@ -387,12 +419,16 @@ namespace Core
                         if (oldmd5 == newmd5)
                         {
                             // 如果文件中的内容与即将写入的内容一致，则跳过写入
+                            _lastRoomFingerprint = fingerprint;
+                            _lastRoomForceSave = DateTime.Now;
                             return;
                         }
                     }
 
                     // 如果文件不存在，或者文件中的内容与即将写入的内容不一致，则进行写入
                     File.WriteAllText(filePath, jsonString, Encoding.UTF8);
+                    _lastRoomFingerprint = fingerprint;
+                    _lastRoomForceSave = DateTime.Now;
 
                     string msg = $"房间配置发生变化，写入文件";
                     OperationQueue.Add(Opcode.Config.UpdateToRoomFile, msg);
