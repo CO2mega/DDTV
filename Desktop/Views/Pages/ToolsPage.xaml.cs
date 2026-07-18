@@ -53,13 +53,14 @@ public partial class ToolsPage
                     string after = result.Replace(".mp4", "_fix.mp4").Replace(".flv", "_fix.mp4");
 
                     // 检测是否是 fMP4 文件且存在结构断裂
-                    if (Core.Tools.Fmp4Repair.DetectCorruption(before))
+                    var scanResult = Core.Tools.Fmp4Repair.Scan(before);
+                    if (scanResult.IsCorrupted)
                     {
                         toolsPageModels.FixMessage = "检测到文件结构断裂，正在预处理...";
                         toolsPageModels.OnPropertyChanged("FixMessage");
 
                         tempRepairedPath = before + ".struct_repaired.mp4";
-                        bool repairSuccess = Core.Tools.Fmp4Repair.RepairStructure(before, tempRepairedPath);
+                        bool repairSuccess = Core.Tools.Fmp4Repair.RepairStructure(before, tempRepairedPath, scanResult);
                         if (repairSuccess)
                         {
                             before = tempRepairedPath;
@@ -72,34 +73,26 @@ public partial class ToolsPage
 
                     await transcode.TranscodeAsync(before, after);
 
-                    // 清理临时文件
-                    if (!string.IsNullOrEmpty(tempRepairedPath) && System.IO.File.Exists(tempRepairedPath))
-                    {
-                        try
-                        {
-                            System.IO.File.Delete(tempRepairedPath);
-                        }
-                        catch { }
-                    }
-
                     toolsPageModels.FixMessage = "文件修复完成";
                     toolsPageModels.OnPropertyChanged("FixMessage");
                 }
                 catch (Exception ex)
                 {
-                    // 清理临时文件
-                    if (!string.IsNullOrEmpty(tempRepairedPath) && System.IO.File.Exists(tempRepairedPath))
-                    {
-                        try
-                        {
-                            System.IO.File.Delete(tempRepairedPath);
-                        }
-                        catch { }
-                    }
-
                     toolsPageModels.FixMessage = "修复文件发生错误，详情查看日志";
                     toolsPageModels.OnPropertyChanged("FixMessage");
                     Log.Error(nameof(ManualFix_Button_Click), $"手动Fix时出现意外错误，文件:{result}");
+                }
+                finally
+                {
+                    // 清理临时文件
+                    if (!string.IsNullOrEmpty(tempRepairedPath) && File.Exists(tempRepairedPath))
+                    {
+                        try
+                        {
+                            File.Delete(tempRepairedPath);
+                        }
+                        catch { }
+                    }
                 }
             });
         }
