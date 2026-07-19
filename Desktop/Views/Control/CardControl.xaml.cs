@@ -57,10 +57,11 @@ namespace Desktop.Views.Control
             Models.DataCard dataCard = GetDataCard(sender);
             try
             {
-                bool hasHls = await IsThereHLVPresentAsync(dataCard.Uid);
-                if (hasHls)
+                string hlsUrl = await GetHlsStreamUrlAsync(dataCard.Uid);
+                if (!string.IsNullOrEmpty(hlsUrl))
                 {
-                    Windows.VlcPlayWindow vlcPlayWindow = new Windows.VlcPlayWindow(dataCard.Uid);
+                    //取流结果直接传给播放窗复用，避免开窗后再发起一次重复的取流请求
+                    Windows.VlcPlayWindow vlcPlayWindow = new Windows.VlcPlayWindow(dataCard.Uid, hlsUrl);
                     vlcPlayWindow.Show();
                 }
                 else
@@ -78,9 +79,9 @@ namespace Desktop.Views.Control
         }
 
         /// <summary>
-        /// 异步检测是否有HLS流
+        /// 异步获取HLS流地址，获取不到（无HLS流或请求失败）时返回null
         /// </summary>
-        public async Task<bool> IsThereHLVPresentAsync(long uid)
+        public async Task<string> GetHlsStreamUrlAsync(long uid)
         {
             return await Task.Run(() =>
             {
@@ -89,9 +90,9 @@ namespace Desktop.Views.Control
                 string url = "";
                 if (roomCard != null && Core.RuntimeObject.Download.HLS.GetHlsAvcUrl(roomCard, Core.Config.Core_RunConfig._DefaultPlayResolution, out url) && !string.IsNullOrEmpty(url))
                 {
-                    return true;
+                    return url;
                 }
-                return false;
+                return null;
             });
         }
 
@@ -104,10 +105,11 @@ namespace Desktop.Views.Control
                 Models.DataCard dataCard = (Models.DataCard)grid.DataContext;
                 try
                 {
-                    bool hasHls = await IsThereHLVPresentAsync(dataCard.Uid);
-                    if (hasHls)
+                    string hlsUrl = await GetHlsStreamUrlAsync(dataCard.Uid);
+                    if (!string.IsNullOrEmpty(hlsUrl))
                     {
-                        Windows.VlcPlayWindow vlcPlayWindow = new Windows.VlcPlayWindow(dataCard.Uid);
+                        //取流结果直接传给播放窗复用，避免开窗后再发起一次重复的取流请求
+                        Windows.VlcPlayWindow vlcPlayWindow = new Windows.VlcPlayWindow(dataCard.Uid, hlsUrl);
                         vlcPlayWindow.Show();
                     }
                     else

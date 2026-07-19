@@ -28,7 +28,7 @@ namespace Desktop.Views.Windows.DanMuCanvas
         public FontFamily TextFontFamily { get; set; }
         public Brush Fill { get; set; } = Brushes.White;
         public Brush Stroke { get; set; } = Brushes.Black;
-        public double StrokeThickness { get; set; } = 2.0;
+        public double StrokeThickness { get; set; } = 1.0;
 
         private void EnsureGeometry()
         {
@@ -39,7 +39,8 @@ namespace Desktop.Views.Windows.DanMuCanvas
             Typeface typeface = new Typeface(
                 TextFontFamily ?? SystemFonts.MessageFontFamily,
                 FontStyles.Normal,
-                FontWeights.Bold,
+                //用Black(900)字重让弹幕更粗；若自定义字体没有Black字重会回落到Bold，观感不变差
+                FontWeights.Black,
                 FontStretches.Normal);
             _formattedText = new FormattedText(
                 Text,

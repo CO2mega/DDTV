@@ -98,8 +98,15 @@ namespace Desktop.Views.Windows
             public int Time { get; set; } = 0;
         }
 
-        public VlcPlayWindow(long uid)
+        /// <summary>
+        /// 打开窗口时由调用方预取的流地址（CardControl检测HLS可用性时已取到一次），
+        /// 首次播放直接复用，避免开窗后重复发起一次取流请求拉长首屏时间；仅首次播放使用，重连仍重新取流
+        /// </summary>
+        private readonly string _presetStreamUrl;
+
+        public VlcPlayWindow(long uid, string presetStreamUrl = null)
         {
+            _presetStreamUrl = presetStreamUrl;
             InitializeComponent();
             vlcPlayModels = new();
             CurrentWindowClarity = Core_RunConfig._DefaultPlayResolution;
@@ -141,7 +148,8 @@ namespace Desktop.Views.Windows
         /// <param name="uid"></param>
         public void InitVlcPlay(long uid)
         {
-            PlaySteam(null);
+            //首次播放优先使用调用方预取的流地址（为空时PlaySteam内部会自行取流）
+            PlaySteam(_presetStreamUrl);
             Dispatcher.Invoke(() =>
             {
                 barrageConfig = new BarrageConfig(DanmaCanvas, this.Width);
@@ -349,8 +357,8 @@ namespace Desktop.Views.Windows
             {
                 case DanmuMessageEventArgs Danmu:
                     {
-                        string[] BlockWords = Core.Config.Core_RunConfig._BlockBarrageList.Split('|');
-                        if (BlockWords.Any(word => !string.IsNullOrEmpty(word) && Danmu.Message.Contains(word)))
+                        //屏蔽词走缓存（配置不变时不重新Split），避免每条弹幕都分配临时数组
+                        if (Services.BarrageBlockWords.IsBlocked(Danmu.Message))
                         {
                             return;
                         }
@@ -541,8 +549,9 @@ namespace Desktop.Views.Windows
         /// <summary>
         /// 是否正在拖动窗口。VLC视频画面和WPF弹幕层是两个独立窗口（LibVLCSharp空域限制），拖动时弹幕仍在覆盖窗口上
         /// 逐帧动画重绘会显著放大拖动卡顿，拖动期间隐藏弹幕层并丢弃新弹幕，拖动结束自动恢复
+        /// （volatile：弹幕接收线程也会读取该标志提前丢弃弹幕）
         /// </summary>
-        private bool _isDragging = false;
+        private volatile bool _isDragging = false;
 
         private void Grid_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
@@ -676,20 +685,89 @@ namespace Desktop.Views.Windows
         }
 
 
+        /// <summary>
+        /// 待渲染的弹幕缓冲（弹幕接收线程写入，UI线程批量取走）
+        /// </summary>
+        private readonly List<(string Text, bool IsSubtitle)> _pendingDanmu = new();
+        private readonly object _pendingDanmuLock = new();
+        private bool _danmuFlushScheduled = false;
+        /// <summary>
+        /// 弹幕聚合刷新间隔（ms）：把洪峰期间的UI线程操作从"每条一次"降到约7次/秒
+        /// </summary>
+        private const int DanmuFlushIntervalMs = 150;
+        /// <summary>
+        /// 每批最多渲染的弹幕条数（即约80条/秒上限）。弹幕洪峰时宁可丢弃也不能把UI线程打满——
+        /// UI线程是全进程共享的，被打满会导致所有窗口、拖动、菜单一起卡死
+        /// </summary>
+        private const int MaxDanmuPerFlush = 12;
+        /// <summary>
+        /// 缓冲积压上限：超过说明渲染已跟不上，直接丢弃新弹幕防止延迟和内存膨胀
+        /// </summary>
+        private const int MaxPendingDanmu = 200;
+
         private void AddDanmu(string DanmuText, bool IsSubtitle, long uid = 0)
         {
-            //弹幕直接排队到UI线程处理：轨道分配在UI线程串行执行（顺带修复多线程并发扫轨道的竞态），
-            //不再每条弹幕都起Task.Run+同步Invoke往返，弹幕洪峰时不阻塞弹幕接收线程
-            System.Windows.Application.Current.Dispatcher.BeginInvoke(new Action(() =>
+            //弹幕渲染器尚未初始化完成（窗口刚打开）或拖动窗口期间，直接丢弃该条弹幕，不进缓冲
+            if (barrageConfig == null || _isDragging)
             {
+                return;
+            }
+            lock (_pendingDanmuLock)
+            {
+                if (_pendingDanmu.Count >= MaxPendingDanmu)
+                {
+                    return;
+                }
+                _pendingDanmu.Add((DanmuText, IsSubtitle));
+                if (_danmuFlushScheduled)
+                {
+                    return;
+                }
+                _danmuFlushScheduled = true;
+            }
+            //150ms后批量渲染一次，弹幕洪峰时UI更新从每秒数百次降到约7次
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(DanmuFlushIntervalMs);
                 try
                 {
-                    //弹幕渲染器尚未初始化完成（窗口刚打开）或窗口已关闭时直接丢弃该条弹幕
-                    if (barrageConfig == null)
+                    await Dispatcher.InvokeAsync(FlushPendingDanmu);
+                }
+                catch (Exception)
+                {
+                    //窗口已关闭等情况忽略
+                }
+            });
+        }
+
+        /// <summary>
+        /// 将缓冲的弹幕批量渲染到弹幕层（仅在UI线程执行）。
+        /// 轨道分配在此串行执行（多线程并发扫轨道的竞态由缓冲单线程化天然避免）
+        /// </summary>
+        private void FlushPendingDanmu()
+        {
+            List<(string Text, bool IsSubtitle)> batch;
+            lock (_pendingDanmuLock)
+            {
+                batch = new List<(string Text, bool IsSubtitle)>(_pendingDanmu);
+                _pendingDanmu.Clear();
+                _danmuFlushScheduled = false;
+            }
+            try
+            {
+                if (barrageConfig == null)
+                {
+                    return;
+                }
+                int rendered = 0;
+                foreach (var (text, isSubtitle) in batch)
+                {
+                    //单批渲染量上限：超出部分丢弃，保证洪峰时每批占用的UI线程时间有界
+                    if (rendered >= MaxDanmuPerFlush)
                     {
                         return;
                     }
-                    //拖动窗口期间丢弃弹幕：弹幕动画的重绘会放大VLC空域窗口的拖动卡顿，漏几条弹幕换取拖动流畅
+                    //拖动窗口期间丢弃弹幕：弹幕动画的重绘会放大VLC空域窗口的拖动卡顿
                     if (_isDragging)
                     {
                         return;
@@ -707,20 +785,21 @@ namespace Desktop.Views.Windows
                             break;
                         }
                     }
-                    //弹幕洪峰轨道全满时丢弃该条，避免覆盖0号轨道上的在屏弹幕
+                    //弹幕洪峰轨道全满时丢弃本批剩余弹幕，避免覆盖在屏弹幕
                     if (Index < 0)
                     {
                         return;
                     }
                     danMuOrbitInfos[Index].Time = (int)(Init.GetRunTime() + 5);
                     //显示弹幕
-                    barrageConfig.Barrage_Stroke(new DanMuCanvas.Models.MessageInformation() { content = DanmuText }, Index, IsSubtitle);
+                    barrageConfig.Barrage_Stroke(new DanMuCanvas.Models.MessageInformation() { content = text }, Index, isSubtitle);
+                    rendered++;
                 }
-                catch (Exception)
-                {
-                    //BeginInvoke是fire-and-forget，异常必须在此处消化，避免Dispatcher未处理异常导致程序崩溃
-                }
-            }));
+            }
+            catch (Exception)
+            {
+                //批量渲染在Dispatcher上执行，异常必须在此处消化，避免Dispatcher未处理异常导致程序崩溃
+            }
         }
 
         private void FullScreenSwitch()

@@ -132,8 +132,8 @@ namespace Desktop.Views.Windows
             {
                 case DanmuMessageEventArgs Danmu:
                     {
-                        string[] BlockWords = Core.Config.Core_RunConfig._BlockBarrageList.Split('|');
-                        if (BlockWords.Any(word => !string.IsNullOrEmpty(word) && Danmu.Message.Contains(word)))
+                        //屏蔽词走缓存（配置不变时不重新Split），避免每条弹幕都分配临时数组
+                        if (Services.BarrageBlockWords.IsBlocked(Danmu.Message))
                         {
                             return;
                         }
@@ -157,8 +157,8 @@ namespace Desktop.Views.Windows
                     }
                 case SendGiftEventArgs sendGiftEventArgs:
                     {
-                        string[] BlockWords = Core.Config.Core_RunConfig._BlockBarrageList.Split('|');
-                        if (BlockWords.Any(word => !string.IsNullOrEmpty(word) && sendGiftEventArgs.GiftName.Contains(word)))
+                        //屏蔽词走缓存（配置不变时不重新Split），避免每条礼物消息都分配临时数组
+                        if (Services.BarrageBlockWords.IsBlocked(sendGiftEventArgs.GiftName))
                         {
                             return;
                         }
@@ -177,6 +177,12 @@ namespace Desktop.Views.Windows
                         }
                 default:
                     break;
+            }
+            //未识别/不需要展示的消息类型（如进场消息INTERACT_WORD、Reconnect指令等）不会产生有效文本，
+            //直接丢弃不入队——大直播间这类消息非常高频，入队会把弹幕窗口刷满空白行并让flush空转
+            if (string.IsNullOrEmpty(msg.Message))
+            {
+                return;
             }
             //弹幕先进缓冲，200ms聚合一次批量刷新到UI，避免每条弹幕都同步Invoke阻塞弹幕接收线程
             lock (_pendingDanmaLock)

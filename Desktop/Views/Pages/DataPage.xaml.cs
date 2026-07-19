@@ -33,6 +33,11 @@ public partial class DataPage
     public static int PageIndex = 1;
     public static string screen_name = string.Empty;
     public static int Width = 0;
+    /// <summary>
+    /// 房间列表页当前是否可见（导航进入/离开时由Loaded/Unloaded维护）。
+    /// 页面不可见时3秒定时刷新直接跳过——看不见的数据刷了也是白耗CPU和网络请求
+    /// </summary>
+    public static bool IsPageVisible { get; private set; } = false;
 
     public DataPage()
     {
@@ -46,6 +51,21 @@ public partial class DataPage
             System.Windows.MessageBox.Show($"UI初始化出现重大错误，错误堆栈{ex.ToString()}");
         }
         Width = (int)CardsItemsControl.ActualWidth;
+        //页面被NavigationCacheMode缓存后实例常驻，导航进入/离开只触发Loaded/Unloaded，据此维护可见性标志
+        Loaded += DataPage_Loaded;
+        Unloaded += DataPage_Unloaded;
+    }
+
+    private void DataPage_Loaded(object sender, RoutedEventArgs e)
+    {
+        IsPageVisible = true;
+        //回到本页时立即刷新一次，避免展示离开期间的过期数据
+        RequestImmediateRefresh();
+    }
+
+    private void DataPage_Unloaded(object sender, RoutedEventArgs e)
+    {
+        IsPageVisible = false;
     }
 
     public async void Init()
@@ -207,10 +227,15 @@ public partial class DataPage
     }
 
     /// <summary>
-    /// 请求立即刷新一次房间卡片（带重入保护，进行中的刷新会跳过本次请求）
+    /// 请求立即刷新一次房间卡片（带重入保护，进行中的刷新会跳过本次请求；页面不可见时直接忽略）
     /// </summary>
     public static void RequestImmediateRefresh()
     {
+        //页面不可见时刷新纯属浪费：数据刷出来也没人看，等导航回本页时Loaded会补一次刷新
+        if (!IsPageVisible)
+        {
+            return;
+        }
         if (Interlocked.Exchange(ref _refreshing, 1) == 1)
         {
             return;

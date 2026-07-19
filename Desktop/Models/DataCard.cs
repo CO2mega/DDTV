@@ -20,28 +20,28 @@ namespace Desktop.Models
         public long Uid
         {
             get => _uid;
-            set { _uid = value; OnPropertyChanged(nameof(Uid)); }
+            set { if (_uid != value) { _uid = value; OnPropertyChanged(nameof(Uid)); } }
         }
 
         private long _roomId;
         public long Room_Id
         {
             get => _roomId;
-            set { _roomId = value; OnPropertyChanged(nameof(Room_Id)); }
+            set { if (_roomId != value) { _roomId = value; OnPropertyChanged(nameof(Room_Id)); } }
         }
 
         private string _title = string.Empty;
         public string Title
         {
             get => _title;
-            set { _title = value; OnPropertyChanged(nameof(Title)); }
+            set { if (_title != value) { _title = value; OnPropertyChanged(nameof(Title)); } }
         }
 
         private string _nickname = string.Empty;
         public string Nickname
         {
             get => _nickname;
-            set { _nickname = value; OnPropertyChanged(nameof(Nickname)); }
+            set { if (_nickname != value) { _nickname = value; OnPropertyChanged(nameof(Nickname)); } }
         }
 
         private bool _isRec;
@@ -156,7 +156,7 @@ namespace Desktop.Models
         public string DownloadSpe_str
         {
             get => _downloadSpeStr;
-            set { _downloadSpeStr = value; OnPropertyChanged(nameof(DownloadSpe_str)); }
+            set { if (_downloadSpeStr != value) { _downloadSpeStr = value; OnPropertyChanged(nameof(DownloadSpe_str)); } }
         }
 
         private bool _isDownload;
@@ -184,14 +184,14 @@ namespace Desktop.Models
         public long LiveTime
         {
             get => _liveTime;
-            set { _liveTime = value; OnPropertyChanged(nameof(LiveTime)); }
+            set { if (_liveTime != value) { _liveTime = value; OnPropertyChanged(nameof(LiveTime)); } }
         }
 
         private string _liveTimeStr = string.Empty;
         public string LiveTime_str
         {
             get => _liveTimeStr;
-            set { _liveTimeStr = value; OnPropertyChanged(nameof(LiveTime_str)); }
+            set { if (_liveTimeStr != value) { _liveTimeStr = value; OnPropertyChanged(nameof(LiveTime_str)); } }
         }
 
         /// <summary>
