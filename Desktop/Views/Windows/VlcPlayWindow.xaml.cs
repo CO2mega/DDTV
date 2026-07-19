@@ -69,6 +69,13 @@ namespace Desktop.Views.Windows
 
         // 播放/重连重入保护（0=空闲，1=进行中），防止EndReached、F5、切换清晰度并发触发PlaySteam
         private int _playReentryGuard = 0;
+        // 连续播放失败计数：Play()对网络错误是异步上报的（EncounteredError），单次PlaySteam内的重试上限拦不住
+        // “报错→重连→再报错”的跨调用无限循环，必须用跨调用的连续失败计数兜底；Playing事件或手动刷新(F5/切清晰度)时清零
+        private int _consecutivePlayFailures = 0;
+        /// <summary>
+        /// 连续播放失败达到此次数后停止自动重连，等待用户手动刷新
+        /// </summary>
+        private const int MaxConsecutivePlayFailures = 3;
         public class DanMuOrbitInfo
         {
             public string Text { get; set; }
@@ -182,6 +189,8 @@ namespace Desktop.Views.Windows
                 CurrentWindowClarity = (long)clickedMenuItem.Tag; // 获取被点击的菜单项的索引
             });
 
+            //手动切换清晰度视为用户主动重试，清零连续失败计数
+            Interlocked.Exchange(ref _consecutivePlayFailures, 0);
             vlcPlayModels.LoadingVisibility = Visibility.Visible;
             vlcPlayModels.OnPropertyChanged("LoadingVisibility");
 
@@ -190,6 +199,8 @@ namespace Desktop.Views.Windows
 
         private void MediaPlayer_Playing(object? sender, EventArgs e)
         {
+            //播放成功，连续失败计数清零
+            Interlocked.Exchange(ref _consecutivePlayFailures, 0);
             Task.Run(() =>
             {
                 Thread.Sleep(3000);
@@ -225,17 +236,34 @@ namespace Desktop.Views.Windows
 
         private void MediaPlayer_EndReached(object? sender, EventArgs e)
         {
+            //连续失败已达上限时不再自动重连，等待用户手动刷新（F5/右键刷新会清零计数）
+            if (Volatile.Read(ref _consecutivePlayFailures) > MaxConsecutivePlayFailures)
+            {
+                return;
+            }
             vlcPlayModels.LoadingVisibility = Visibility.Visible;
             vlcPlayModels.OnPropertyChanged("LoadingVisibility");
             PlaySteam(null);
         }
 
         /// <summary>
-        /// VLC自身报告连接/播放错误时触发重连，重试上限和并发由PlaySteam内部控制，不会无限重试
+        /// VLC自身报告连接/播放错误时触发重连；连续失败超过上限后停止自动重连，避免流地址持续失效时无限循环
         /// </summary>
         private void MediaPlayer_EncounteredError(object? sender, EventArgs e)
         {
-            Log.Warn(nameof(VlcPlayWindow), $"房间号:[{roomCard.RoomId}]，VLC报告播放错误，尝试重新连接");
+            int failures = Interlocked.Increment(ref _consecutivePlayFailures);
+            Log.Warn(nameof(VlcPlayWindow), $"房间号:[{roomCard.RoomId}]，VLC报告播放错误(连续第{failures}次)");
+            if (failures > MaxConsecutivePlayFailures)
+            {
+                Log.Warn(nameof(VlcPlayWindow), $"房间号:[{roomCard.RoomId}]，连续播放失败已达上限({MaxConsecutivePlayFailures}次)，停止自动重连，等待手动刷新");
+                vlcPlayModels.LoadingVisibility = Visibility.Collapsed;
+                vlcPlayModels.OnPropertyChanged("LoadingVisibility");
+                vlcPlayModels.MessageVisibility = Visibility.Visible;
+                vlcPlayModels.OnPropertyChanged("MessageVisibility");
+                vlcPlayModels.MessageText = "连接直播间失败，请右键刷新或按F5重试";
+                vlcPlayModels.OnPropertyChanged("MessageText");
+                return;
+            }
             vlcPlayModels.LoadingVisibility = Visibility.Visible;
             vlcPlayModels.OnPropertyChanged("LoadingVisibility");
             PlaySteam(null);
@@ -431,6 +459,11 @@ namespace Desktop.Views.Windows
                         Log.Error(nameof(PlaySteam), $"房间号:[{roomCard.RoomId}]，VLC连接源出现意外错误，源地址[{Url}]", ex);
                     }
                 });
+            }
+            catch (Exception ex)
+            {
+                //async void的异常会直接打到SynchronizationContext导致崩溃，必须在此消化（多为窗口关闭与播放流程竞争导致的对象已释放）
+                Log.Error(nameof(PlaySteam), $"房间号:[{roomCard.RoomId}]，播放流程出现异常（可能是窗口关闭与播放竞争）", ex);
             }
             finally
             {
@@ -690,6 +723,8 @@ namespace Desktop.Views.Windows
             //F5刷新
             else if (e.KeyStates == Keyboard.GetKeyStates(Key.F5))
             {
+                //手动刷新视为用户主动重试，清零连续失败计数
+                Interlocked.Exchange(ref _consecutivePlayFailures, 0);
                 vlcPlayModels.LoadingVisibility = Visibility.Visible;
                 vlcPlayModels.OnPropertyChanged("LoadingVisibility");
                 PlaySteam(null);
@@ -721,6 +756,8 @@ namespace Desktop.Views.Windows
 
         private void F5_MenuItem_Click(object sender, RoutedEventArgs e)
         {
+            //手动刷新视为用户主动重试，清零连续失败计数
+            Interlocked.Exchange(ref _consecutivePlayFailures, 0);
             vlcPlayModels.LoadingVisibility = Visibility.Visible;
             vlcPlayModels.OnPropertyChanged("LoadingVisibility");
             PlaySteam(null);
