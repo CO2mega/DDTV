@@ -1868,10 +1868,10 @@ namespace Core
                 }
             }
 
-            private static string PlayWindowDanmaSpeed = "6";
+            private static string PlayWindowDanmaSpeed = "8";
             /// <summary>
             /// 播放窗口弹幕速度
-            /// 默认值：15
+            /// 默认值：8
             /// </summary>
             public int _PlayWindowDanmaSpeed
             {

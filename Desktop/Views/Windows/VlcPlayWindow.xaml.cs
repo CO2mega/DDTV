@@ -538,10 +538,29 @@ namespace Desktop.Views.Windows
         }
 
         private DateTime lastClickTime = DateTime.MinValue; // 上次点击的时间
+        /// <summary>
+        /// 是否正在拖动窗口。VLC视频画面和WPF弹幕层是两个独立窗口（LibVLCSharp空域限制），拖动时弹幕仍在覆盖窗口上
+        /// 逐帧动画重绘会显著放大拖动卡顿，拖动期间隐藏弹幕层并丢弃新弹幕，拖动结束自动恢复
+        /// </summary>
+        private bool _isDragging = false;
 
         private void Grid_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
-            this.DragMove();
+            _isDragging = true;
+            DanmaCanvas.Visibility = Visibility.Collapsed;
+            try
+            {
+                this.DragMove();
+            }
+            catch (Exception)
+            {
+                //DragMove在非左键按住等情况下会抛InvalidOperationException，吞掉即可
+            }
+            finally
+            {
+                _isDragging = false;
+                DanmaCanvas.Visibility = Visibility.Visible;
+            }
             DateTime now = DateTime.Now;
             // 检查是否为双击（两次点击间隔小于系统双击时间）
             if ((now - lastClickTime).TotalMilliseconds <= SystemInformation.DoubleClickTime)
@@ -667,6 +686,11 @@ namespace Desktop.Views.Windows
                 {
                     //弹幕渲染器尚未初始化完成（窗口刚打开）或窗口已关闭时直接丢弃该条弹幕
                     if (barrageConfig == null)
+                    {
+                        return;
+                    }
+                    //拖动窗口期间丢弃弹幕：弹幕动画的重绘会放大VLC空域窗口的拖动卡顿，漏几条弹幕换取拖动流畅
+                    if (_isDragging)
                     {
                         return;
                     }

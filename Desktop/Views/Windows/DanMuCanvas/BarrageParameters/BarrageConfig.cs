@@ -106,51 +106,43 @@ namespace Desktop.Views.Windows.DanMuCanvas.BarrageParameters
         {
             height = Index * Config.Core_RunConfig._PlayWindowDanmaFontSize;
             FontFamily typeface = GetTypefaceFontFamily();
-            Grid grid = new Grid();
-            for (int i = 0; i < 4; i++)
-            {
-                TextBlock strokeTextBlock = new TextBlock();
-                if (typeface != null)
-                {
-                    strokeTextBlock.FontFamily = typeface;
-                }
-                strokeTextBlock.Margin = new Thickness(i == 0 ? -2 : 0, i == 1 ? -2 : 0, i == 2 ? -2 : 0, i == 3 ? -2 : 0);
-                strokeTextBlock.Text = !string.IsNullOrEmpty(contentlist.nickName) ? $"{contentlist.nickName}:{contentlist.content}" : contentlist.content;
-                strokeTextBlock.FontSize = Config.Core_RunConfig._PlayWindowDanmaFontSize;
-                strokeTextBlock.FontWeight = System.Windows.FontWeights.Bold;
-                strokeTextBlock.Foreground = _strokeBrush;
-                grid.Children.Add(strokeTextBlock);
-            }
-            TextBlock textblock = new TextBlock();
-            if (typeface != null)
-            {
-                textblock.FontFamily = typeface;
-            }
+            string text = !string.IsNullOrEmpty(contentlist.nickName) ? $"{contentlist.nickName}:{contentlist.content}" : contentlist.content;
 
-            if (!string.IsNullOrEmpty(contentlist.nickName))
+            //单元素描边弹幕：几何轮廓描边替代原4+1个TextBlock叠加，渲染树节点从5个降到1个
+            OutlinedText danma = new OutlinedText
             {
-                textblock.Text = $"{contentlist.nickName}:{contentlist.content}";
-            }
-            else
-            {
-                textblock.Text = contentlist.content;
-            }
-            textblock.FontSize = Config.Core_RunConfig._PlayWindowDanmaFontSize;
-            textblock.FontWeight = System.Windows.FontWeights.Bold;
-            textblock.Foreground = IsSubtitle ? GetSubtitleBrush() : GetDanmaBrush();
+                Text = text,
+                TextFontSize = Config.Core_RunConfig._PlayWindowDanmaFontSize,
+                TextFontFamily = typeface,
+                Fill = IsSubtitle ? GetSubtitleBrush() : GetDanmaBrush(),
+                Stroke = _strokeBrush,
+                IsHitTestVisible = false
+            };
+            Canvas.SetTop(danma, height);
+            Canvas.SetLeft(danma, 0);
+            canvas.Children.Add(danma);
 
-            grid.Children.Add(textblock);
+            StartScrollAnimation(danma, text.Length);
+        }
 
-            //这里设置了弹幕的高度
-            Canvas.SetTop(grid, height);
-            canvas.Children.Add(grid);
+        /// <summary>
+        /// 弹幕滚动动画：驱动TranslateTransform而非Canvas.Left。
+        /// Canvas.Left是布局属性，每帧动画都会让整个Canvas（在VLC窗口里是覆盖视频的透明分层窗口）全量重排+重绘，
+        /// 是弹幕一多就卡的主因；RenderTransform动画由渲染线程直接合成，不触发布局，开销几乎为零
+        /// </summary>
+        private void StartScrollAnimation(FrameworkElement danma, int textLength)
+        {
+            double startX = canvas.ActualWidth;
+            //终点取实际渲染宽度而不是按字号估算，避免等宽假设下长弹幕提前消失或短弹幕空跑
+            double endX = 0 - (danma is OutlinedText outlined ? outlined.TextWidth : Config.Core_RunConfig._PlayWindowDanmaFontSize * textLength) - 10;
 
-            //实例化动画
+            TranslateTransform transform = new TranslateTransform(startX, 0);
+            danma.RenderTransform = transform;
+
             DoubleAnimation animation = new DoubleAnimation();
             Timeline.SetDesiredFrameRate(animation, 30); //30fps对滚动弹幕肉眼无感，渲染开销比60fps减半
-                                                         //从右往左
-            animation.From = canvas.ActualWidth;
-            animation.To = 0 - (Config.Core_RunConfig._PlayWindowDanmaFontSize * textblock.Text.Length);
+            animation.From = startX;
+            animation.To = endX;
             if (Config.Core_RunConfig._PlayDanmaSpeed_Dynamically)
             {
                 animation.Duration = TimeSpan.FromSeconds(Config.Core_RunConfig._PlayWindowDanmaSpeed);
@@ -162,11 +154,10 @@ namespace Desktop.Views.Windows.DanMuCanvas.BarrageParameters
             animation.AutoReverse = false;
             animation.Completed += (object sender, EventArgs e) =>
             {
-                canvas.Children.Remove(grid);
+                canvas.Children.Remove(danma);
             };
 
-            //启动动画
-            grid.BeginAnimation(Canvas.LeftProperty, animation);
+            transform.BeginAnimation(TranslateTransform.XProperty, animation);
         }
 
 
@@ -219,30 +210,12 @@ namespace Desktop.Views.Windows.DanMuCanvas.BarrageParameters
                 textblock.Foreground = GetDanmaBrush();
             }
 
+            textblock.IsHitTestVisible = false;
             //这里设置了弹幕的高度
             Canvas.SetTop(textblock, height);
+            Canvas.SetLeft(textblock, 0);
             canvas.Children.Add(textblock);
-            //实例化动画
-            DoubleAnimation animation = new DoubleAnimation();
-            Timeline.SetDesiredFrameRate(animation, 30);  //30fps对滚动弹幕肉眼无感，渲染开销比60fps减半
-                                                          //从右往左
-            animation.From = canvas.ActualWidth;
-            animation.To = 0 - (Config.Core_RunConfig._PlayWindowDanmaFontSize * textblock.Text.Length);
-            if (Config.Core_RunConfig._PlayDanmaSpeed_Dynamically)
-            {
-                animation.Duration = TimeSpan.FromSeconds(Config.Core_RunConfig._PlayWindowDanmaSpeed);
-            }
-            else
-            {
-                animation.Duration = TimeSpan.FromSeconds(_width / 800 * Config.Core_RunConfig._PlayWindowDanmaSpeed);
-            }
-            animation.AutoReverse = false;
-            animation.Completed += (object sender, EventArgs e) =>
-            {
-                canvas.Children.Remove(textblock);
-            };
-            //启动动画
-            textblock.BeginAnimation(Canvas.LeftProperty, animation);
+            StartScrollAnimation(textblock, textblock.Text.Length);
         }
 
 

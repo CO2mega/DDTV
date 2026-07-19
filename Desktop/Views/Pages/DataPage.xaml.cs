@@ -262,8 +262,12 @@ public partial class DataPage
         PageIndex = PageComboBox.SelectedIndex + 1;
         try
         {
-            ScrollViewer? scrollViewer = VisualTreeHelper.GetChild(CardsItemsControl, 0) as ScrollViewer;
-            scrollViewer?.ScrollToTop();
+            // 模板尚未应用时 VisualChildrenCount 为 0，此时 GetChild 会抛 ArgumentOutOfRangeException
+            if (VisualTreeHelper.GetChildrenCount(CardsItemsControl) > 0)
+            {
+                ScrollViewer? scrollViewer = VisualTreeHelper.GetChild(CardsItemsControl, 0) as ScrollViewer;
+                scrollViewer?.ScrollToTop();
+            }
         }
         catch (Exception)
         {
