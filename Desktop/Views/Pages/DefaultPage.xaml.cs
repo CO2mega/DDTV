@@ -24,7 +24,6 @@ namespace Desktop.Views.Pages;
 public partial class DefaultPage
 {
     internal static HomePageModels PageComboBoxItems { get; private set; }
-    private System.Threading.Timer RoomStatisticsTimer;
     private System.Threading.Timer UpdateHardwareResourceUtilizationRateTimer;
     private System.Threading.Timer UpdateRuntimeStatisticsTimer;
     private System.Threading.Timer UpdateAnnouncementTimer;
@@ -38,8 +37,11 @@ public partial class DefaultPage
         PageComboBoxItems = new();
         this.DataContext = PageComboBoxItems;
 
-        //更新房间统计
-        RoomStatisticsTimer = new System.Threading.Timer(async _ => await UpdateRoomStatisticsAsync(), null, 1, 3000);
+        //房间统计改为订阅共享缓存（RoomStatistics由MainWindow定时器统一驱动，此处不再单独获取）
+        DataSource.RoomStatistics.Updated += RoomStatistics_Updated;
+        //先用缓存的当前值填充一次：缓存新鲜时RefreshAsync不会触发事件，不填充会显示默认值直到下次数值变化
+        RoomStatistics_Updated();
+        _ = DataSource.RoomStatistics.RefreshAsync();
         //更新硬件使用率
         UpdateHardwareResourceUtilizationRateTimer = new System.Threading.Timer(async _ => await UpdateHardwareResourceUtilizationRateAsync(), null, 1000, 60 * 1000);
         //更新运行时长
@@ -57,13 +59,13 @@ public partial class DefaultPage
 
     private void DefaultPage_Unloaded(object sender, System.Windows.RoutedEventArgs e)
     {
-        RoomStatisticsTimer?.Dispose();
         UpdateHardwareResourceUtilizationRateTimer?.Dispose();
         UpdateRuntimeStatisticsTimer?.Dispose();
         UpdateAnnouncementTimer?.Dispose();
         ProxyDetectionTimer?.Dispose();
         IpvDetectionTimer?.Dispose();
         Core.RuntimeObject.Account.LoginFailureEvent -= Account_LoginFailureEvent;
+        DataSource.RoomStatistics.Updated -= RoomStatistics_Updated;
         Unloaded -= DefaultPage_Unloaded;
     }
 
@@ -237,32 +239,15 @@ public partial class DefaultPage
     }
 
     /// <summary>
-    /// 异步更新房间统计
+    /// 共享统计缓存更新事件：直接读取缓存值刷新面板（事件在后台线程触发，
+    /// WPF对标量属性的PropertyChanged会自动封送到UI线程，与原定时器线程直接调用的行为一致）
     /// </summary>
-    public static async Task UpdateRoomStatisticsAsync()
+    private static void RoomStatistics_Updated()
     {
-        try
-        {
-            (int MonitoringCount, int LiveCount, int RecCount) count = new();
-
-            if (Core.Config.Core_RunConfig._DesktopRemoteServer || Core.Config.Core_RunConfig._LocalHTTPMode)
-            {
-                count = await NetWork.Post.PostBody<(int MonitoringCount, int LiveCount, int RecCount)>(
-                    $"{Config.Core_RunConfig._DesktopIP}:{Config.Core_RunConfig._DesktopPort}/api/get_rooms/room_statistics");
-            }
-            else
-            {
-                count = Core.RuntimeObject._Room.Overview.GetRoomStatisticsOverview();
-            }
-
-            SetMonitoringCount(count.MonitoringCount);
-            SetLiveCount(count.LiveCount);
-            SetRecCount(count.RecCount);
-        }
-        catch (Exception ex)
-        {
-            Log.Warn(nameof(UpdateRoomStatisticsAsync), "更新房间统计出现错误", ex, false);
-        }
+        var count = DataSource.RoomStatistics.Current;
+        SetMonitoringCount(count.MonitoringCount);
+        SetLiveCount(count.LiveCount);
+        SetRecCount(count.RecCount);
     }
 
     /// <summary>
@@ -270,6 +255,11 @@ public partial class DefaultPage
     /// </summary>
     public static async Task UpdateHardwareResourceUtilizationRateAsync()
     {
+        //窗口隐藏到托盘时跳过（UI不可见）
+        if (Desktop.Services.UiActivity.IsBackground)
+        {
+            return;
+        }
         try
         {
             SystemResourceClass systemResourceClass = new();
@@ -304,6 +294,11 @@ public partial class DefaultPage
     /// </summary>
     public static void UpdateRuntimeStatistics()
     {
+        //窗口隐藏到托盘时跳过（UI不可见）
+        if (Desktop.Services.UiActivity.IsBackground)
+        {
+            return;
+        }
         try
         {
             TimeSpan t = TimeSpan.FromSeconds(Core.Init.GetRunTime());

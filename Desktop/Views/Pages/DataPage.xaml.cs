@@ -192,8 +192,29 @@ public partial class DataPage
         });
     }
 
+    //刷新重入保护（0=空闲，1=刷新进行中）：远程模式网络慢时一次刷新可能超过定时器周期，
+    //不加保护会让刷新请求无限堆积、乱序执行
+    private static int _refreshing = 0;
+
     public static void Refresher(object state)
     {
+        //窗口隐藏到托盘时跳过刷新（UI不可见，刷了也看不见）
+        if (Services.UiActivity.IsBackground)
+        {
+            return;
+        }
+        RequestImmediateRefresh();
+    }
+
+    /// <summary>
+    /// 请求立即刷新一次房间卡片（带重入保护，进行中的刷新会跳过本次请求）
+    /// </summary>
+    public static void RequestImmediateRefresh()
+    {
+        if (Interlocked.Exchange(ref _refreshing, 1) == 1)
+        {
+            return;
+        }
         _ = RefreshRoomCardsSafeAsync();
     }
 
@@ -206,6 +227,10 @@ public partial class DataPage
         catch (Exception ex)
         {
             Core.LogModule.Log.Error(nameof(Refresher), "定时刷新房间卡片数据失败", ex);
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _refreshing, 0);
         }
     }
 

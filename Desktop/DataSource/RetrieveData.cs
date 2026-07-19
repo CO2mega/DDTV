@@ -85,7 +85,8 @@ namespace Desktop.DataSource
                         webUidSet.Add(item.uid);
                     }
 
-                Application.Current.Dispatcher.Invoke(() =>
+                //异步封送到UI线程做diff：同步Invoke会让后台线程阻塞等UI线程，UI卡顿时线程池线程被占用堆积
+                await Application.Current.Dispatcher.InvokeAsync(() =>
                 {
                     // 根据总数算一下需要多少页
                     int pg = (Cards.total / 102) + (Cards.total % 102 > 0 ? 1 : 0);

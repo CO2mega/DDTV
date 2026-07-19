@@ -37,6 +37,7 @@
                         <MenuItem Header="主窗口+侧边" Click="MenuItem_Layout_MainSub_Click"/>
                     </MenuItem>
                     <Separator/>
+                    <MenuItem Header="关闭全部" Click="CloseAllWindows_MenuItem_Click" Icon="{ui:SymbolIcon Dismiss24}"/>
                     <MenuItem Header="关闭本窗口" Click="ExitWindow_MenuItem_Click" Icon="{ui:SymbolIcon ArrowExit20}"/>
                 </ContextMenu>
             </Grid.ContextMenu>

@@ -45,9 +45,9 @@ namespace Desktop
         /// </summary>
         public static bool ToConnectToRemoteServer = false;
         /// <summary>
-        /// 更新目录房间列表录制中数量定时器
+        /// 房间统计刷新定时器（驱动共享缓存RoomStatistics，标题栏与DefaultPage统计面板共用）
         /// </summary>
-        private System.Threading.Timer IpvDetectionTimer;
+        private System.Threading.Timer RoomStatisticsRefreshTimer;
 
         public static Config.RunConfig configViewModel { get; set; } = new();
 
@@ -80,8 +80,8 @@ namespace Desktop
         /// </summary>
         public void Init()
         {
-            //设置房间卡片列表页定时任务（首次10ms立即触发，之后每1秒）
-            DataPage.Timer_DataPage = new System.Threading.Timer(DataPage.Refresher, null, 10, 1000);
+            //设置房间卡片列表页定时任务（首次10ms立即触发，之后每3秒；回调内有重入保护，上次未完成的tick会被跳过）
+            DataPage.Timer_DataPage = new System.Threading.Timer(DataPage.Refresher, null, 10, 3000);
             //设置登录失效事件（失效后弹出扫码框）
             DataSource.LoginStatus.LoginFailureEvent += LoginStatus_LoginFailureEvent;
             //设置登录态检测定时任务
@@ -112,8 +112,11 @@ namespace Desktop
             {
                 WindowsAPI.OpenWindowsHibernation();
             }
-            //更新目录房间列表录制中数量（改为异步）
-            IpvDetectionTimer = new System.Threading.Timer(async _ => await UpdateNumberRecordedRoomsInDirectoryRoomListAsync(), null, 1000, 1000);
+            //房间统计刷新（每3秒驱动一次共享缓存；缓存有最小间隔和重入保护，数值变化时才通过事件通知UI更新）
+            DataSource.RoomStatistics.Updated += RoomStatistics_Updated;
+            RoomStatisticsRefreshTimer = new System.Threading.Timer(_ => _ = DataSource.RoomStatistics.RefreshAsync(), null, 1000, 3000);
+            //恢复到前台时立即刷新一次统计数据和房间卡片
+            Services.UiActivity.ForegroundRestored += UiActivity_ForegroundRestored;
         }
 
         /// <summary>
@@ -157,6 +160,8 @@ namespace Desktop
                                 this.Title = $"{doki.InitType}|{doki.Ver}| %%% |{Enum.GetName(typeof(Config.Mode), doki.StartMode)}【{doki.CompilationMode}】(编译时间:{doki.CompiledVersion}){(ToConnectToRemoteServer ? "【远程模式】" : "")}$$$";
                             }
                             P_Title = this.Title;
+                            //标题模板就绪后立即用当前统计缓存填充一次占位符，避免统计数字不变时标题占位符长期不替换
+                            UpdateWindowTitle();
                         });
                         return;
                     }
@@ -234,6 +239,13 @@ namespace Desktop
             if (Config.Core_RunConfig._ZoomOutMode != 0 && this.WindowState == WindowState.Minimized)
             {
                 this.Hide();
+                //进入后台模式：各UI轮询定时器跳过执行（UI不可见，刷新纯属浪费CPU和网络请求）
+                Services.UiActivity.SetBackground(true);
+            }
+            else if (this.WindowState != WindowState.Minimized)
+            {
+                //窗口恢复显示（托盘左键/强制显示都会把状态置回Normal，必经此分支）
+                Services.UiActivity.SetBackground(false);
             }
         }
 
@@ -352,23 +364,30 @@ namespace Desktop
         }
 
         /// <summary>
-        /// 异步更新目录房间列表录制中数量
+        /// 统计数据变化事件：封送到UI线程更新标题（只有数值变化时才会触发，不再每秒刷新）
         /// </summary>
-        public static async Task UpdateNumberRecordedRoomsInDirectoryRoomListAsync()
+        private static void RoomStatistics_Updated()
+        {
+            _ = Application.Current.Dispatcher.InvokeAsync(UpdateWindowTitle);
+        }
+
+        /// <summary>
+        /// 恢复到前台时立即拉取最新统计并刷新房间卡片，避免界面展示过期数据
+        /// </summary>
+        private void UiActivity_ForegroundRestored()
+        {
+            _ = DataSource.RoomStatistics.RefreshAsync(true);
+            Views.Pages.DataPage.RequestImmediateRefresh();
+        }
+
+        /// <summary>
+        /// 根据共享统计缓存更新窗口标题和导航标题（需在UI线程调用）
+        /// </summary>
+        public static void UpdateWindowTitle()
         {
             try
             {
-                (int MonitoringCount, int LiveCount, int RecCount) count = new();
-
-                if (Core.Config.Core_RunConfig._DesktopRemoteServer || Core.Config.Core_RunConfig._LocalHTTPMode)
-                {
-                    count = await NetWork.Post.PostBody<(int MonitoringCount, int LiveCount, int RecCount)>(
-                        $"{Config.Core_RunConfig._DesktopIP}:{Config.Core_RunConfig._DesktopPort}/api/get_rooms/room_statistics");
-                }
-                else
-                {
-                    count = Core.RuntimeObject._Room.Overview.GetRoomStatisticsOverview();
-                }
+                var count = DataSource.RoomStatistics.Current;
 
                 configViewModel.DataPageTitle = $"房间列表 ({count.RecCount})";
                 configViewModel.OnPropertyChanged("DataPageTitle");
@@ -379,7 +398,7 @@ namespace Desktop
             }
             catch (Exception ex)
             {
-                Log.Warn(nameof(UpdateNumberRecordedRoomsInDirectoryRoomListAsync), "更新房间统计出现错误", ex, false);
+                Log.Warn(nameof(UpdateWindowTitle), "更新窗口标题出现错误", ex, false);
             }
         }
     }

@@ -48,6 +48,45 @@ namespace Desktop.Views.Windows.DanMuCanvas.BarrageParameters
             }
             return _cachedTypeface;
         }
+
+        //弹幕画刷缓存：冻结后的画刷可跨元素共享且渲染更快，避免每条弹幕都Split配置字符串+分配新画刷
+        //（弹幕渲染在UI线程串行执行，静态缓存无需加锁；配置在设置页修改后下次渲染自动重建）
+        private static readonly SolidColorBrush _strokeBrush = CreateFrozenBrush(Colors.Black);
+        private static SolidColorBrush _danmaBrush = null;
+        private static string _danmaBrushKey = null;
+        private static SolidColorBrush _subtitleBrush = null;
+        private static string _subtitleBrushKey = null;
+
+        private static SolidColorBrush CreateFrozenBrush(Color color)
+        {
+            SolidColorBrush brush = new SolidColorBrush(color);
+            brush.Freeze();
+            return brush;
+        }
+
+        /// <summary>
+        /// 按"RR,GG,BB"配置字符串获取缓存的冻结画刷，配置未变化时直接复用
+        /// </summary>
+        private static SolidColorBrush GetCachedBrush(string colorConfig, ref SolidColorBrush cache, ref string cacheKey)
+        {
+            if (cache != null && cacheKey == colorConfig)
+            {
+                return cache;
+            }
+            string[] parts = colorConfig.Split(',');
+            byte R = Convert.ToByte(parts[0], 16);
+            byte G = Convert.ToByte(parts[1], 16);
+            byte B = Convert.ToByte(parts[2], 16);
+            cache = CreateFrozenBrush(Color.FromRgb(R, G, B));
+            cacheKey = colorConfig;
+            return cache;
+        }
+
+        private static SolidColorBrush GetDanmaBrush() =>
+            GetCachedBrush(Config.Core_RunConfig._PlayWindowDanmaColor, ref _danmaBrush, ref _danmaBrushKey);
+
+        private static SolidColorBrush GetSubtitleBrush() =>
+            GetCachedBrush(Config.Core_RunConfig._PlayWindowSubtitleColor, ref _subtitleBrush, ref _subtitleBrushKey);
         #endregion
 
         #region 初始化
@@ -68,7 +107,6 @@ namespace Desktop.Views.Windows.DanMuCanvas.BarrageParameters
             height = Index * Config.Core_RunConfig._PlayWindowDanmaFontSize;
             FontFamily typeface = GetTypefaceFontFamily();
             Grid grid = new Grid();
-            grid.Resources.Add("Stroke", new SolidColorBrush(Colors.Black));
             for (int i = 0; i < 4; i++)
             {
                 TextBlock strokeTextBlock = new TextBlock();
@@ -80,7 +118,7 @@ namespace Desktop.Views.Windows.DanMuCanvas.BarrageParameters
                 strokeTextBlock.Text = !string.IsNullOrEmpty(contentlist.nickName) ? $"{contentlist.nickName}:{contentlist.content}" : contentlist.content;
                 strokeTextBlock.FontSize = Config.Core_RunConfig._PlayWindowDanmaFontSize;
                 strokeTextBlock.FontWeight = System.Windows.FontWeights.Bold;
-                strokeTextBlock.Foreground = (Brush)grid.Resources["Stroke"];
+                strokeTextBlock.Foreground = _strokeBrush;
                 grid.Children.Add(strokeTextBlock);
             }
             TextBlock textblock = new TextBlock();
@@ -99,20 +137,7 @@ namespace Desktop.Views.Windows.DanMuCanvas.BarrageParameters
             }
             textblock.FontSize = Config.Core_RunConfig._PlayWindowDanmaFontSize;
             textblock.FontWeight = System.Windows.FontWeights.Bold;
-            if (IsSubtitle)
-            {
-                byte R = Convert.ToByte(Config.Core_RunConfig._PlayWindowSubtitleColor.Split(',')[0], 16);
-                byte G = Convert.ToByte(Config.Core_RunConfig._PlayWindowSubtitleColor.Split(',')[1], 16);
-                byte B = Convert.ToByte(Config.Core_RunConfig._PlayWindowSubtitleColor.Split(',')[2], 16);
-                textblock.Foreground = new SolidColorBrush(Color.FromRgb(R, G, B));
-            }
-            else
-            {
-                byte R = Convert.ToByte(Config.Core_RunConfig._PlayWindowDanmaColor.Split(',')[0], 16);
-                byte G = Convert.ToByte(Config.Core_RunConfig._PlayWindowDanmaColor.Split(',')[1], 16);
-                byte B = Convert.ToByte(Config.Core_RunConfig._PlayWindowDanmaColor.Split(',')[2], 16);
-                textblock.Foreground = new SolidColorBrush(Color.FromRgb(R, G, B));
-            }
+            textblock.Foreground = IsSubtitle ? GetSubtitleBrush() : GetDanmaBrush();
 
             grid.Children.Add(textblock);
 
@@ -122,7 +147,7 @@ namespace Desktop.Views.Windows.DanMuCanvas.BarrageParameters
 
             //实例化动画
             DoubleAnimation animation = new DoubleAnimation();
-            Timeline.SetDesiredFrameRate(animation, 60); //如果有性能问题,这里可以设置帧数
+            Timeline.SetDesiredFrameRate(animation, 30); //30fps对滚动弹幕肉眼无感，渲染开销比60fps减半
                                                          //从右往左
             animation.From = canvas.ActualWidth;
             animation.To = 0 - (Config.Core_RunConfig._PlayWindowDanmaFontSize * textblock.Text.Length);
@@ -187,18 +212,11 @@ namespace Desktop.Views.Windows.DanMuCanvas.BarrageParameters
             }
             if (IsSubtitle)
             {
-
-                byte R = Convert.ToByte(Config.Core_RunConfig._PlayWindowSubtitleColor.Split(',')[0], 16);
-                byte G = Convert.ToByte(Config.Core_RunConfig._PlayWindowSubtitleColor.Split(',')[1], 16);
-                byte B = Convert.ToByte(Config.Core_RunConfig._PlayWindowSubtitleColor.Split(',')[2], 16);
-                textblock.Foreground = new SolidColorBrush(Color.FromRgb(R, G, B));
+                textblock.Foreground = GetSubtitleBrush();
             }
             else
             {
-                byte R = Convert.ToByte(Config.Core_RunConfig._PlayWindowDanmaColor.Split(',')[0], 16);
-                byte G = Convert.ToByte(Config.Core_RunConfig._PlayWindowDanmaColor.Split(',')[1], 16);
-                byte B = Convert.ToByte(Config.Core_RunConfig._PlayWindowDanmaColor.Split(',')[2], 16);
-                textblock.Foreground = new SolidColorBrush(Color.FromRgb(R, G, B));
+                textblock.Foreground = GetDanmaBrush();
             }
 
             //这里设置了弹幕的高度
@@ -206,7 +224,7 @@ namespace Desktop.Views.Windows.DanMuCanvas.BarrageParameters
             canvas.Children.Add(textblock);
             //实例化动画
             DoubleAnimation animation = new DoubleAnimation();
-            Timeline.SetDesiredFrameRate(animation, 60);  //如果有性能问题,这里可以设置帧数
+            Timeline.SetDesiredFrameRate(animation, 30);  //30fps对滚动弹幕肉眼无感，渲染开销比60fps减半
                                                           //从右往左
             animation.From = canvas.ActualWidth;
             animation.To = 0 - (Config.Core_RunConfig._PlayWindowDanmaFontSize * textblock.Text.Length);

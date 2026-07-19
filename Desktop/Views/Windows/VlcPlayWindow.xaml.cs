@@ -28,7 +28,23 @@ namespace Desktop.Views.Windows
     public partial class VlcPlayWindow : FluentWindow
     {
 
-        private LibVLC _libVLC;
+        //LibVLC实例全进程共享一个：每个播放窗口各建一个实例意味着每个窗口都背一份完整的native libvlc
+        //（解码器缓存、线程池，几十MB），而LibVLCSharp官方支持单实例挂多个MediaPlayer，这也是推荐用法。
+        //共享实例随进程生命周期存在，窗口关闭时只释放自己的MediaPlayer/Media即可。
+        private static LibVLC _sharedLibVLC;
+        private static readonly object _sharedLibVLCLock = new();
+        private static LibVLC SharedLibVLC
+        {
+            get
+            {
+                lock (_sharedLibVLCLock)
+                {
+                    //每个选项必须是独立的argv元素，拼成一个字符串libvlc只会按一个非法参数解析，导致缓存设置全部失效；
+                    //但libvlc遇到不认识的选项会直接实例化失败，只能传当前VLC版本真实存在的选项（已核实--hls-segment-threads和--no-cert-verification不存在，不可传入）
+                    return _sharedLibVLC ??= new LibVLC("--network-caching=3000", "--live-caching=3000");
+                }
+            }
+        }
         private LibVLCSharp.Shared.MediaPlayer _mediaPlayer;
         /// <summary>
         /// 窗口展示内容数据绑定源
@@ -107,10 +123,7 @@ namespace Desktop.Views.Windows
             this.Title = $"{roomCard.Name}({roomCard.RoomId}) - {roomCard.Title.Value}";
             Log.Info(nameof(VlcPlayWindow), $"房间号:[{roomCard.RoomId}],打开播放器");
 
-            //每个选项必须是独立的argv元素，拼成一个字符串libvlc只会按一个非法参数解析，导致缓存设置全部失效；
-            //但libvlc遇到不认识的选项会直接实例化失败，只能传当前VLC版本真实存在的选项（已核实--hls-segment-threads和--no-cert-verification不存在，不可传入）
-            _libVLC = new LibVLC("--network-caching=3000", "--live-caching=3000");
-            _mediaPlayer = new LibVLCSharp.Shared.MediaPlayer(_libVLC);
+            _mediaPlayer = new LibVLCSharp.Shared.MediaPlayer(SharedLibVLC);
 
             videoView.MediaPlayer = _mediaPlayer;
             videoView.MediaPlayer.Playing += MediaPlayer_Playing;
@@ -408,9 +421,9 @@ namespace Desktop.Views.Windows
                         const int maxAttempts = 3;
                         for (int attempt = 1; attempt <= maxAttempts; attempt++)
                         {
-                            if (_libVLC == null || _mediaPlayer == null)
+                            if (_mediaPlayer == null)
                             {
-                                //窗口已关闭
+                                //窗口已关闭（共享LibVLC实例随进程存活，不能用其实例是否存在判断窗口状态）
                                 return;
                             }
                             if (string.IsNullOrEmpty(Url))
@@ -430,7 +443,7 @@ namespace Desktop.Views.Windows
                                 staleMedia.ClearSlaves();
                                 staleMedia.Dispose();
                             }
-                            var media = new Media(_libVLC, Url, FromType.FromLocation);
+                            var media = new Media(SharedLibVLC, Url, FromType.FromLocation);
                             _mediaPlayer.Media = media;
                             if (_mediaPlayer.Play())
                             {
@@ -514,11 +527,7 @@ namespace Desktop.Views.Windows
                 _mediaPlayer.Dispose();
                 _mediaPlayer = null;
             }
-            if (_libVLC != null)
-            {
-                _libVLC.Dispose();
-                _libVLC = null;
-            }
+            //共享LibVLC实例随进程生命周期存在，此处不Dispose（否则其他播放窗口会拿到已释放的实例）
             //无论弹幕开关状态如何都确保退订重连事件，防止静态事件残留引用导致窗口无法回收
             Core.RuntimeObject.Danmu.DanmaTriggerReconnect -= Instance_DanmaTriggerReconnect;
             if (DanmaSwitch)
@@ -623,6 +632,30 @@ namespace Desktop.Views.Windows
             this.Close();
         }
 
+        /// <summary>
+        /// 关闭全部播放窗口（二次确认后执行）
+        /// </summary>
+        private async void CloseAllWindows_MenuItem_Click(object sender, RoutedEventArgs e)
+        {
+            var messageBox = new Wpf.Ui.Controls.MessageBox
+            {
+                Title = "关闭确认",
+                Content = $"确认要关闭全部{PlayWindowManager.WindowCount}个播放窗口吗？",
+                PrimaryButtonText = "是",
+                SecondaryButtonText = "否",
+                IsCloseButtonEnabled = false,
+                Owner = this,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner
+            };
+
+            var result = await messageBox.ShowDialogAsync();
+            if (result == Wpf.Ui.Controls.MessageBoxResult.Primary)
+            {
+                //各窗口的Closing事件会自行完成MediaPlayer/Media释放和PlayWindowManager注销
+                PlayWindowManager.CloseAll();
+            }
+        }
+
 
         private void AddDanmu(string DanmuText, bool IsSubtitle, long uid = 0)
         {
@@ -637,7 +670,7 @@ namespace Desktop.Views.Windows
                     {
                         return;
                     }
-                    int Index = 0;
+                    int Index = -1;
                     for (int i = 0; i < danMuOrbitInfos.Length; i++)
                     {
                         if (danMuOrbitInfos[i] == null)
@@ -649,6 +682,11 @@ namespace Desktop.Views.Windows
                             Index = i;
                             break;
                         }
+                    }
+                    //弹幕洪峰轨道全满时丢弃该条，避免覆盖0号轨道上的在屏弹幕
+                    if (Index < 0)
+                    {
+                        return;
                     }
                     danMuOrbitInfos[Index].Time = (int)(Init.GetRunTime() + 5);
                     //显示弹幕

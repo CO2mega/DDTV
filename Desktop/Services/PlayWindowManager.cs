@@ -30,6 +30,40 @@ namespace Desktop.Services
             }
         }
 
+        /// <summary>
+        /// 当前已登记的VLC播放窗口数量
+        /// </summary>
+        public static int WindowCount
+        {
+            get
+            {
+                lock (_lock)
+                {
+                    return _windows.Count(w => w is VlcPlayWindow);
+                }
+            }
+        }
+
+        /// <summary>
+        /// 关闭所有VLC播放窗口。只负责调用各窗口的Close()，
+        /// 资源释放（MediaPlayer/Media/弹幕退订）由每个窗口自己的Closing事件完成，
+        /// 避免这里重复实现一套释放逻辑导致两边不同步
+        /// </summary>
+        public static void CloseAll()
+        {
+            List<Window> targets;
+            lock (_lock)
+            {
+                targets = _windows.Where(w => w is VlcPlayWindow).ToList();
+            }
+
+            foreach (var w in targets)
+            {
+                //关闭过程中各窗口的Closing会Unregister自己（修改_windows），所以上面先取快照再遍历
+                w.Dispatcher.Invoke(() => w.Close());
+            }
+        }
+
         public static void Arrange(Window source, WindowLayoutMode mode)
         {
             List<Window> targets;

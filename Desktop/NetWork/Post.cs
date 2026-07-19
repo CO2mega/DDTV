@@ -50,19 +50,29 @@ namespace Desktop.NetWork
                 dic.Add("sig", sig);
                 dic.Remove("access_key_secret");
 
+                //自定义超时时创建短期客户端，用完必须Dispose：HttpClient持有连接池和socket句柄，
+                //不释放会一直挂到GC终结才回收，长期运行句柄数缓慢上涨
+                HttpClient tempClient = null;
                 var client = _httpClient;
                 if (TimeoutPeriod != default(TimeSpan))
                 {
-                    // 当需要自定义超时时，创建短期客户端
-                    client = new HttpClient { Timeout = TimeoutPeriod };
+                    tempClient = new HttpClient { Timeout = TimeoutPeriod };
+                    client = tempClient;
                 }
 
-                var content = new FormUrlEncodedContent(dic);
-                var response = await client.PostAsync(url, content);
-                var responseString = await response.Content.ReadAsStringAsync();
-                OperationQueue.pack<T> A = JsonConvert.DeserializeObject<OperationQueue.pack<T>>(responseString);
+                try
+                {
+                    var content = new FormUrlEncodedContent(dic);
+                    var response = await client.PostAsync(url, content);
+                    var responseString = await response.Content.ReadAsStringAsync();
+                    OperationQueue.pack<T> A = JsonConvert.DeserializeObject<OperationQueue.pack<T>>(responseString);
 
-                return A.data;
+                    return A.data;
+                }
+                finally
+                {
+                    tempClient?.Dispose();
+                }
             }
             catch (Exception ex)
             {
