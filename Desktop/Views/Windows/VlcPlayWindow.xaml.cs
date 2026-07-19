@@ -67,8 +67,8 @@ namespace Desktop.Views.Windows
         /// </summary>
         public bool isFullScreen = false;
 
-        // 重连锁
-        private volatile bool _reconnectLock = false;
+        // 播放/重连重入保护（0=空闲，1=进行中），防止EndReached、F5、切换清晰度并发触发PlaySteam
+        private int _playReentryGuard = 0;
         public class DanMuOrbitInfo
         {
             public string Text { get; set; }
@@ -100,12 +100,15 @@ namespace Desktop.Views.Windows
             this.Title = $"{roomCard.Name}({roomCard.RoomId}) - {roomCard.Title.Value}";
             Log.Info(nameof(VlcPlayWindow), $"房间号:[{roomCard.RoomId}],打开播放器");
 
-            _libVLC = new LibVLC([$"--network-caching=3000 --live-caching=3000 --no-cache --hls-segment-threads=3 --no-cert-verification"]);
+            //每个选项必须是独立的argv元素，拼成一个字符串libvlc只会按一个非法参数解析，导致缓存设置全部失效；
+            //但libvlc遇到不认识的选项会直接实例化失败，只能传当前VLC版本真实存在的选项（已核实--hls-segment-threads和--no-cert-verification不存在，不可传入）
+            _libVLC = new LibVLC("--network-caching=3000", "--live-caching=3000");
             _mediaPlayer = new LibVLCSharp.Shared.MediaPlayer(_libVLC);
 
             videoView.MediaPlayer = _mediaPlayer;
             videoView.MediaPlayer.Playing += MediaPlayer_Playing;
             videoView.MediaPlayer.EndReached += MediaPlayer_EndReached;
+            videoView.MediaPlayer.EncounteredError += MediaPlayer_EncounteredError;
             videoView.MediaPlayer.Volume = 30;
 
             Task.Run(() => InitVlcPlay(uid));
@@ -227,6 +230,17 @@ namespace Desktop.Views.Windows
             PlaySteam(null);
         }
 
+        /// <summary>
+        /// VLC自身报告连接/播放错误时触发重连，重试上限和并发由PlaySteam内部控制，不会无限重试
+        /// </summary>
+        private void MediaPlayer_EncounteredError(object? sender, EventArgs e)
+        {
+            Log.Warn(nameof(VlcPlayWindow), $"房间号:[{roomCard.RoomId}]，VLC报告播放错误，尝试重新连接");
+            vlcPlayModels.LoadingVisibility = Visibility.Visible;
+            vlcPlayModels.OnPropertyChanged("LoadingVisibility");
+            PlaySteam(null);
+        }
+
         private async void SetDanma()
         {
             if (DanmaSwitch)
@@ -321,46 +335,57 @@ namespace Desktop.Views.Windows
         /// <param name="Url"></param>
         public async void PlaySteam(string Url = null)
         {
-            Log.Info(nameof(PlaySteam), $"房间号:[{roomCard.RoomId}],播放网络路径直播流");
-            await Task.Run(() =>
+            //重入保护：EndReached、F5、切换清晰度可能同时触发，并发执行会竞争_mediaPlayer.Media导致native崩溃
+            if (Interlocked.Exchange(ref _playReentryGuard, 1) == 1)
             {
-
-                if (_mediaPlayer.IsPlaying)
+                Log.Info(nameof(PlaySteam), $"房间号:[{roomCard.RoomId}],已有播放/重连流程进行中，忽略本次触发");
+                return;
+            }
+            try
+            {
+                Log.Info(nameof(PlaySteam), $"房间号:[{roomCard.RoomId}],播放网络路径直播流");
+                await Task.Run(async () =>
                 {
-                    _mediaPlayer.Stop();
-                }
-                if (_mediaPlayer.Media != null)
-                {
-                    _mediaPlayer.Media.ClearSlaves();
-                    _mediaPlayer.Media = null;
-                }
-
-
-                if (!RoomInfo.GetLiveStatus(roomCard.RoomId))
-                {
-                    Log.Info(nameof(PlaySteam), $"房间号:[{roomCard.RoomId}]，主播已下播，停止获取流地址");
-                    return;
-                }
-                if (string.IsNullOrEmpty(Url))
-                {
-                    Url = GeUrl(CurrentWindowClarity);
-                }
-                try
-                {
-                    bool completedInTime = false;
-
-                    while (!completedInTime)
+                    if (_mediaPlayer == null)
                     {
-                        CancellationTokenSource cts = new CancellationTokenSource();
-                        Task task = Task.Run(() =>
+                        //窗口已关闭
+                        return;
+                    }
+                    if (_mediaPlayer.IsPlaying)
+                    {
+                        _mediaPlayer.Stop();
+                    }
+                    if (_mediaPlayer.Media != null)
+                    {
+                        //Media包装native的libvlc_media_t，必须显式Dispose，只置null会累积native句柄
+                        var oldMedia = _mediaPlayer.Media;
+                        _mediaPlayer.Media = null;
+                        oldMedia.ClearSlaves();
+                        oldMedia.Dispose();
+                    }
+
+                    if (!RoomInfo.GetLiveStatus(roomCard.RoomId))
+                    {
+                        Log.Info(nameof(PlaySteam), $"房间号:[{roomCard.RoomId}]，主播已下播，停止获取流地址");
+                        return;
+                    }
+                    if (string.IsNullOrEmpty(Url))
+                    {
+                        Url = GeUrl(CurrentWindowClarity);
+                    }
+                    try
+                    {
+                        //有限次数重试：原实现用从不检查token的CancellationToken做"假取消"且无重试上限，
+                        //流地址持续失效时会无限并发重连并堆积native资源，这里改为最多3次、每次间隔2秒
+                        const int maxAttempts = 3;
+                        for (int attempt = 1; attempt <= maxAttempts; attempt++)
                         {
-                            if (_libVLC != null && !string.IsNullOrEmpty(Url))
+                            if (_libVLC == null || _mediaPlayer == null)
                             {
-                                var media = new Media(_libVLC, Url, FromType.FromLocation);
-                                _mediaPlayer.Media = media;
-                                _mediaPlayer?.Play();
+                                //窗口已关闭
+                                return;
                             }
-                            else
+                            if (string.IsNullOrEmpty(Url))
                             {
                                 vlcPlayModels.MessageVisibility = Visibility.Visible;
                                 vlcPlayModels.OnPropertyChanged("MessageVisibility");
@@ -368,30 +393,49 @@ namespace Desktop.Views.Windows
                                 vlcPlayModels.OnPropertyChanged("MessageText");
                                 return;
                             }
-                        }, cts.Token);
 
-                        if (!task.Wait(TimeSpan.FromSeconds(10)))
-                        {
-                            cts.Cancel();
-                            Log.Warn(nameof(PlaySteam), $"房间号:[{roomCard.RoomId}]，VLC连接源超时，进行重试，源地址[{Url}]");
-                            vlcPlayModels.MessageVisibility = Visibility.Visible;
-                            vlcPlayModels.OnPropertyChanged("MessageVisibility");
-                            vlcPlayModels.MessageText = "连接直播间失败，开始重试";
-                            vlcPlayModels.OnPropertyChanged("MessageText");
+                            //上一次尝试遗留的Media先释放再重建
+                            if (_mediaPlayer.Media != null)
+                            {
+                                var staleMedia = _mediaPlayer.Media;
+                                _mediaPlayer.Media = null;
+                                staleMedia.ClearSlaves();
+                                staleMedia.Dispose();
+                            }
+                            var media = new Media(_libVLC, Url, FromType.FromLocation);
+                            _mediaPlayer.Media = media;
+                            if (_mediaPlayer.Play())
+                            {
+                                vlcPlayModels.MessageVisibility = Visibility.Collapsed;
+                                vlcPlayModels.OnPropertyChanged("MessageVisibility");
+                                return;
+                            }
+
+                            Log.Warn(nameof(PlaySteam), $"房间号:[{roomCard.RoomId}]，VLC播放启动失败(第{attempt}/{maxAttempts}次)，源地址[{Url}]");
+                            if (attempt < maxAttempts)
+                            {
+                                vlcPlayModels.MessageVisibility = Visibility.Visible;
+                                vlcPlayModels.OnPropertyChanged("MessageVisibility");
+                                vlcPlayModels.MessageText = $"连接直播间失败，正在重试({attempt}/{maxAttempts})";
+                                vlcPlayModels.OnPropertyChanged("MessageText");
+                                await Task.Delay(2000);
+                            }
                         }
-                        else
-                        {
-                            completedInTime = true;
-                            vlcPlayModels.MessageVisibility = Visibility.Collapsed;
-                            vlcPlayModels.OnPropertyChanged("MessageVisibility");
-                        }
+                        vlcPlayModels.MessageVisibility = Visibility.Visible;
+                        vlcPlayModels.OnPropertyChanged("MessageVisibility");
+                        vlcPlayModels.MessageText = "连接直播间失败，请右键刷新或按F5重试";
+                        vlcPlayModels.OnPropertyChanged("MessageText");
                     }
-                }
-                catch (Exception ex)
-                {
-                    Log.Error(nameof(PlaySteam), $"房间号:[{roomCard.RoomId}]，VLC连接源出现意外错误，进行重试，源地址[{Url}]", ex);
-                }
-            });
+                    catch (Exception ex)
+                    {
+                        Log.Error(nameof(PlaySteam), $"房间号:[{roomCard.RoomId}]，VLC连接源出现意外错误，源地址[{Url}]", ex);
+                    }
+                });
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _playReentryGuard, 0);
+            }
 
         }
 
@@ -418,14 +462,18 @@ namespace Desktop.Views.Windows
                 //先退订播放事件，避免Disposed对象上残留回调
                 _mediaPlayer.Playing -= MediaPlayer_Playing;
                 _mediaPlayer.EndReached -= MediaPlayer_EndReached;
+                _mediaPlayer.EncounteredError -= MediaPlayer_EncounteredError;
                 if (_mediaPlayer.IsPlaying)
                 {
                     _mediaPlayer.Stop();
                 }
                 if (_mediaPlayer.Media != null)
                 {
-                    _mediaPlayer.Media.ClearSlaves();
+                    //Media包装native的libvlc_media_t，必须显式Dispose，只置null会泄漏native句柄
+                    var oldMedia = _mediaPlayer.Media;
                     _mediaPlayer.Media = null;
+                    oldMedia.ClearSlaves();
+                    oldMedia.Dispose();
                 }
                 Log.Info(nameof(PlaySteam), $"房间号:[{roomCard.RoomId}],关闭播放器");
                 //释放native资源，避免反复开关播放窗积累句柄和内存

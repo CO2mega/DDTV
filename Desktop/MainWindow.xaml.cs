@@ -67,7 +67,6 @@ namespace Desktop
             {
                 //初始化各种page
                 Init();
-                InitializeNotifyIcon();
             }
             catch (Exception ex)
             {
@@ -94,8 +93,8 @@ namespace Desktop
             //初始化底部提示框
             SnackbarService = Desktop.App._MainSnackbarServiceProvider.GetRequiredService<ISnackbarService>();
             SnackbarService.SetSnackbarPresenter(MainSnackbar);
-            //初始化托盘
-            InitializeNotifyIcon();
+            //托盘图标由MainWindow.xaml中的notifyIcon实例提供，这里只需订阅一次最小化事件用于最小化到托盘
+            StateChanged += MainWindow_StateChanged;
             //初始化确认窗口
             _contentDialogService.SetDialogHost(RootContentDialogPresenter);
             //初始化标题和远程模式标志以及检查远程和本地版本号一致性
@@ -227,12 +226,6 @@ namespace Desktop
         /// <summary>
         /// 初始化托盘图标
         /// </summary>
-        private void InitializeNotifyIcon()
-        {
-            NotifyIcon notifyIconWindow = new NotifyIcon();
-            StateChanged += MainWindow_StateChanged;
-        }
-
         /// <summary>
         /// 窗口缩小事件
         /// </summary>

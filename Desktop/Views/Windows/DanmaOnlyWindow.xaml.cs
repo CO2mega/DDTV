@@ -22,6 +22,10 @@ namespace Desktop.Views.Windows
         /// 当前窗口的置顶状态
         /// </summary>
         private bool TopMostSwitch = false;
+        /// <summary>
+        /// 窗口是否已开始关闭（用于阻止后台线程在退订之后再次订阅事件）
+        /// </summary>
+        private volatile bool _closed = false;
         public DanmaOnlyWindow(RoomCardClass Card)
         {
             InitializeComponent();
@@ -29,15 +33,22 @@ namespace Desktop.Views.Windows
             if (roomCard != null && roomCard.RoomId > 0)
             {
                 DanmaView.ItemsSource = DanmaCollection;
+                UI_TitleBar.Title = $"{Card.Name}({Card.RoomId})";
+                this.Title = UI_TitleBar.Title;
+                DanmaCollection.Add(new DanmaOnly { Message = $"连接[{Card.Name}({Card.RoomId})]直播间弹幕长连" });
+
+                //事件订阅必须在UI线程同步执行：Closing中的退订也在UI线程，二者串行才不会出现"退订先于订阅"导致窗口永远无法释放的竞态
+                if (roomCard.DownInfo.LiveChatListener != null)
+                {
+                    roomCard.DownInfo.LiveChatListener.Register.Add("DanmaOnlyWindow");
+                    roomCard.DownInfo.LiveChatListener.MessageReceived -= LiveChatListener_MessageReceived;
+                    roomCard.DownInfo.LiveChatListener.MessageReceived += LiveChatListener_MessageReceived;
+                }
+                Core.RuntimeObject.Danmu.DanmaTriggerReconnect -= Instance_DanmaTriggerReconnect;
+                Core.RuntimeObject.Danmu.DanmaTriggerReconnect += Instance_DanmaTriggerReconnect;
+
                 Task.Run(() =>
                 {
-                    Dispatcher.Invoke(() =>
-                    {
-                        UI_TitleBar.Title = $"{Card.Name}({Card.RoomId})";
-                        this.Title = UI_TitleBar.Title;
-                        DanmaCollection.Add(new DanmaOnly { Message = $"连接[{Card.Name}({Card.RoomId})]直播间弹幕长连" });
-                    });
-
                     if (roomCard.DownInfo.LiveChatListener == null)
                     {
                         roomCard.DownInfo.LiveChatListener = new Core.LiveChat.LiveChatListener(roomCard.RoomId);
@@ -47,18 +58,35 @@ namespace Desktop.Views.Windows
                     {
                         roomCard.DownInfo.LiveChatListener.Connect();
                     }
-                    if (roomCard.DownInfo.LiveChatListener != null)
-                    {
-                        roomCard.DownInfo.LiveChatListener.Register.Add("DanmaOnlyWindow");
-                        roomCard.DownInfo.LiveChatListener.MessageReceived -= LiveChatListener_MessageReceived;
-                        roomCard.DownInfo.LiveChatListener.MessageReceived += LiveChatListener_MessageReceived;
-                        Core.RuntimeObject.Danmu.DanmaTriggerReconnect -= Instance_DanmaTriggerReconnect;
-                        Core.RuntimeObject.Danmu.DanmaTriggerReconnect += Instance_DanmaTriggerReconnect;
-                    }
 
                     Dispatcher.Invoke(() =>
                     {
-                        DanmaCollection.Add(new DanmaOnly { Message = $"等待直播间消息中..." });
+                        if (_closed)
+                        {
+                            //窗口在连接期间已被关闭，若长连是刚刚才建立的且没有任何注册者，直接释放，避免留下无人使用的监听器
+                            if (roomCard.DownInfo.LiveChatListener != null && roomCard.DownInfo.LiveChatListener.Register.Count == 0)
+                            {
+                                try
+                                {
+                                    roomCard.DownInfo.LiveChatListener.Dispose();
+                                    roomCard.DownInfo.LiveChatListener = null;
+                                }
+                                catch (Exception)
+                                { }
+                            }
+                            return;
+                        }
+                        if (roomCard.DownInfo.LiveChatListener != null)
+                        {
+                            //监听器可能在构造之后才创建，此处补订阅（已在构造函数订阅过的不会重复添加）
+                            if (!roomCard.DownInfo.LiveChatListener.Register.Contains("DanmaOnlyWindow"))
+                            {
+                                roomCard.DownInfo.LiveChatListener.Register.Add("DanmaOnlyWindow");
+                                roomCard.DownInfo.LiveChatListener.MessageReceived -= LiveChatListener_MessageReceived;
+                                roomCard.DownInfo.LiveChatListener.MessageReceived += LiveChatListener_MessageReceived;
+                            }
+                            DanmaCollection.Add(new DanmaOnly { Message = $"等待直播间消息中..." });
+                        }
                     });
                 });
             }
@@ -72,6 +100,10 @@ namespace Desktop.Views.Windows
 
         private void Instance_DanmaTriggerReconnect(object? sender, RoomCardClass e)
         {
+            if (_closed)
+            {
+                return;
+            }
             Dispatcher.Invoke(() =>
             {
                 DanmaCollection.Add(new DanmaOnly { Message = $"弹幕重连中..." });
@@ -202,8 +234,11 @@ namespace Desktop.Views.Windows
 
         private void FluentWindow_Closing(object sender, CancelEventArgs e)
         {
+            _closed = true;
             if (roomCard!=null && roomCard.DownInfo.LiveChatListener != null)
             {
+                //无论是否还有其他注册者，都必须退订本窗口的消息事件，否则监听器存活期间会持续引用已关闭的窗口导致内存泄漏
+                roomCard.DownInfo.LiveChatListener.MessageReceived -= LiveChatListener_MessageReceived;
                 roomCard.DownInfo.LiveChatListener.Register.Remove("DanmaOnlyWindow");
                 if (roomCard.DownInfo.LiveChatListener.Register.Count == 0)
                 {
