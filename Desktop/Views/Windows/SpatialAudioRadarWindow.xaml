@@ -1,0 +1,84 @@
+<ui:FluentWindow x:Class="Desktop.Views.Windows.SpatialAudioRadarWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+        mc:Ignorable="d"
+        Title="DDTV 空间音频雷达控制台"
+        Height="680" Width="600"
+        MinWidth="520" MinHeight="600"
+        WindowStartupLocation="CenterScreen"
+        Background="#18181C"
+        Loaded="FluentWindow_Loaded"
+        Closing="FluentWindow_Closing">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- 顶部标题栏 -->
+        <ui:TitleBar Grid.Row="0" Title="DDTV 空间音频雷达控制台 (3D Spatial Radar)" Icon="pack://application:,,,/DDTV.ico" />
+
+        <!-- 极坐标 2.5D 雷达主视口 -->
+        <Grid Grid.Row="1" Margin="10" ClipToBounds="True">
+            <Border CornerRadius="12" Background="#121216" BorderBrush="#2A2A32" BorderThickness="1">
+                <Canvas x:Name="RadarCanvas"
+                        Background="Transparent"
+                        SizeChanged="RadarCanvas_SizeChanged"
+                        MouseDown="RadarCanvas_MouseDown"
+                        MouseMove="RadarCanvas_MouseMove"
+                        MouseUp="RadarCanvas_MouseUp"
+                        MouseLeave="RadarCanvas_MouseLeave"
+                        MouseWheel="RadarCanvas_MouseWheel">
+                    <!-- 背景网格与同心圆将由后台动态绘制在动态层 -->
+                </Canvas>
+            </Border>
+
+            <!-- 浮动朝向提示 HUD -->
+            <Border HorizontalAlignment="Right" VerticalAlignment="Top" Margin="16"
+                    Background="#80000000" CornerRadius="6" Padding="8,4" BorderBrush="#33FFFFFF" BorderThickness="1">
+                <StackPanel Orientation="Horizontal">
+                    <ui:SymbolIcon Symbol="Headphones24" Foreground="#4CC2FF" Margin="0,0,6,0" />
+                    <TextBlock x:Name="TxtHeadYaw" Text="人头朝向: 0.0°" Foreground="#E0E0E0" FontSize="12" VerticalAlignment="Center" />
+                </StackPanel>
+            </Border>
+
+            <!-- 无活动播放源时的空状态提示 -->
+            <StackPanel x:Name="EmptyHintPanel" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed">
+                <ui:SymbolIcon Symbol="SoundWaveCircle24" FontSize="48" Foreground="#555566" HorizontalAlignment="Center" Margin="0,0,0,10" />
+                <TextBlock Text="暂无播放中的直播间，打开播放窗口后小球将自动出现" Foreground="#777788" FontSize="14" HorizontalAlignment="Center" />
+            </StackPanel>
+        </Grid>
+
+        <!-- 交互与状态控制条 -->
+        <Border Grid.Row="2" Background="#1E1E24" Margin="10,0,10,6" CornerRadius="8" Padding="12,8">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="空间音效" Foreground="#DDD" VerticalAlignment="Center" Margin="0,0,8,0" FontWeight="SemiBold"/>
+                    <ui:ToggleSwitch x:Name="ToggleSpatial" IsChecked="True" Checked="ToggleSpatial_Checked" Unchecked="ToggleSpatial_Unchecked" />
+                </StackPanel>
+
+                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                    <ui:Button Content="复位人头朝向 (0°)" Icon="{ui:SymbolIcon ArrowReset24}" Click="BtnResetHead_Click" Margin="0,0,8,0" />
+                    <ui:Button Content="自动环形排列" Icon="{ui:SymbolIcon Circle24}" Click="BtnAutoArrange_Click" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- 底部快捷帮助提示 -->
+        <Border Grid.Row="3" Background="#121216" Padding="12,6">
+            <TextBlock HorizontalAlignment="Center" Foreground="#888899" FontSize="11"
+                       Text="💡 操作提示：[左键拖动小球] 调整房间声源方位 | [中键按住拖动] 旋转人头朝向 | [滚轮] 调整距离 | [双击小球] 居中" />
+        </Border>
+    </Grid>
+</ui:FluentWindow>

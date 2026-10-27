@@ -1,4 +1,4 @@
-﻿<ui:FluentWindow x:Class="Desktop.Views.Windows.VlcPlayWindow"
+<ui:FluentWindow x:Class="Desktop.Views.Windows.VlcPlayWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
@@ -12,7 +12,7 @@
         Title="VlcPlayWindow" Height="450" Width="800" 
         Closing="FluentWindow_Closing" KeyDown="FluentWindow_KeyDown">
     <vlc:VideoView Margin="1" x:Name="videoView">
-        <Grid Background="#01000000" MouseLeftButtonDown="Grid_MouseLeftButtonDown" MouseWheel="Grid_MouseWheel" SizeChanged="Grid_SizeChanged">
+        <Grid Background="#01000000" MouseLeftButtonDown="Grid_MouseLeftButtonDown" MouseWheel="Grid_MouseWheel" SizeChanged="Grid_SizeChanged" PreviewMouseRightButtonDown="Grid_PreviewMouseRightButtonDown">
             <Grid.ContextMenu>
                 <ContextMenu>
                     <MenuItem Header="窗口置顶" Icon="{ui:SymbolIcon BorderTopBottomThick20}" Click="MenuItem_TopMost_Click"/>
@@ -28,6 +28,8 @@
                     <MenuItem Header="展示弹幕发送框" Icon="{ui:SymbolIcon News20}" Click="MenuItem_Switch_Danma_Send_Click"/>
                     <MenuItem Header="在浏览器打开直播间" Icon="{ui:SymbolIcon WebAsset20}" Click="MenuItem_OpenLiveUlr_Click"/>
                     <MenuItem Header="单独打开弹幕查看器" Icon="{ui:SymbolIcon TextWordCount20}" Click="MenuItem_DanmaOnly_Click"/>
+                    <Separator/>
+                    <MenuItem Header="空间音频雷达" Icon="{ui:SymbolIcon Headphones24}" Click="MenuItem_SpatialAudioRadar_Click"/>
                     <Separator/>
                     <MenuItem Header="复制流地址到粘贴板" Icon="{ui:SymbolIcon CopyArrowRight24}" Click="PasteStreamAddress_MenuItem_Click"/>
                     <Separator/>

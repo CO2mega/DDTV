@@ -1,9 +1,10 @@
-﻿using Core;
+using Core;
 using Core.LiveChat;
 using Core.LogModule;
 using Core.RuntimeObject;
 using Desktop.Models;
 using Desktop.Services;
+using Desktop.Services.SpatialAudio;
 using Desktop.Views.Windows.DanMuCanvas.BarrageParameters;
 using LibVLCSharp.Shared;
 using LibVLCSharp.WPF;
@@ -131,6 +132,13 @@ namespace Desktop.Views.Windows
             Log.Info(nameof(VlcPlayWindow), $"房间号:[{roomCard.RoomId}],打开播放器");
 
             _mediaPlayer = new LibVLCSharp.Shared.MediaPlayer(SharedLibVLC);
+
+            // 注册空间音频截获通道
+            var spChan = SpatialAudioEngine.Instance.RegisterPlayer(_mediaPlayer, roomCard.RoomId, roomCard.Name, roomCard.UID);
+            if (spChan != null)
+            {
+                spChan.Volume = 0.3f;
+            }
 
             videoView.MediaPlayer = _mediaPlayer;
             videoView.MediaPlayer.Playing += MediaPlayer_Playing;
@@ -544,6 +552,8 @@ namespace Desktop.Views.Windows
             {
                 CloseDanma();
             }
+            //注销空间音频通道
+            SpatialAudioEngine.Instance.UnregisterPlayer(roomCard.RoomId);
             PlayWindowManager.Unregister(this);
             //注销观看时长心跳引用(该房间引用清零后管理器自动停止心跳)
             Core.RuntimeObject.WatchHeartbeatManager.Unregister(roomCard.RoomId, "VlcPlayWindow");
@@ -645,6 +655,10 @@ namespace Desktop.Views.Windows
                 videoView.Dispatcher.Invoke(() =>
                 {
                     _mediaPlayer.Volume = i;
+                    if (SpatialAudioEngine.Instance.Channels.TryGetValue(roomCard.RoomId, out var spChan))
+                    {
+                        spChan.Volume = Math.Clamp(i / 100.0f, 0f, 1f);
+                    }
                     vlcPlayModels.VolumeVisibility = Visibility.Visible;
                     vlcPlayModels.OnPropertyChanged("VolumeVisibility");
                     Task.Run(() =>
@@ -1018,6 +1032,31 @@ namespace Desktop.Views.Windows
         private void MenuItem_Layout_MainSub_Click(object sender, RoutedEventArgs e)
         {
             PlayWindowManager.Arrange(this, WindowLayoutMode.MainAndSub);
+        }
+
+        private void Grid_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            if (e.ClickCount == 2)
+            {
+                e.Handled = true;
+                OpenSpatialAudioRadar();
+            }
+        }
+
+        private void MenuItem_SpatialAudioRadar_Click(object sender, RoutedEventArgs e)
+        {
+            OpenSpatialAudioRadar();
+        }
+
+        private void OpenSpatialAudioRadar()
+        {
+            var win = SpatialAudioRadarWindow.GetOrCreate();
+            win.Show();
+            if (win.WindowState == WindowState.Minimized)
+            {
+                win.WindowState = WindowState.Normal;
+            }
+            win.Activate();
         }
 
         private void PasteStreamAddress_MenuItem_Click(object sender, RoutedEventArgs e)
