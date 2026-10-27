@@ -1,4 +1,4 @@
-﻿using Core.LogModule;
+using Core.LogModule;
 using Core.RuntimeObject;
 using Core.Tools;
 using System.ComponentModel;
@@ -707,20 +707,20 @@ namespace Core
                 }
             }
 
-            private static string Key = "34D3D9‭9D34894461‭91AB9B8‭582454669";
+            private static string Key = "34D3D9\u202D9D34894461\u202D91AB9B8\u202D582454669";
             /// <summary>
             /// 默认的AES加密秘钥（字符串）
-            /// 默认值：34D3D9‭9D34894461‭91AB9B8‭582454669
+            /// 默认值：34D3D9\u202D9D34894461\u202D91AB9B8\u202D582454669
             /// </summary>
             public string _Key
             {
                 get => Key;
             }
 
-            private static string IV = "B3FF‭40627013‭F53F";
+            private static string IV = "B3FF\u202D40627013\u202DF53F";
             /// <summary>
             /// 默认的AES加密初始化向量（字符串）
-            /// 默认值：B3FF‭40627013‭F53F
+            /// 默认值：B3FF\u202D40627013\u202DF53F
             /// </summary>
             public string _IV
             {
@@ -1021,6 +1021,29 @@ namespace Core
                     if (value.ToString() != DeleteOriginalFileAfterRepair)
                     {
                         DeleteOriginalFileAfterRepair = value.ToString();
+                        OnPropertyChanged();
+                        ModifyConfig(value);
+                    }
+                }
+            }
+
+            private static string KeepDanmuWhenNoVideoFile = "false";
+            /// <summary>
+            /// 录制结束没有有效视频文件时(无可用视频流/文件低于清理阈值被自动删除)仍然保存弹幕文件。
+            /// 开启后弹幕/礼物/上舰/SC文件会照常落盘，成为没有对应视频的独立文件
+            /// 默认值：false
+            /// </summary>
+            public bool _KeepDanmuWhenNoVideoFile
+            {
+                get
+                {
+                    return ParseBool(KeepDanmuWhenNoVideoFile);
+                }
+                set
+                {
+                    if (value.ToString() != KeepDanmuWhenNoVideoFile)
+                    {
+                        KeepDanmuWhenNoVideoFile = value.ToString();
                         OnPropertyChanged();
                         ModifyConfig(value);
                     }
@@ -1521,6 +1544,65 @@ namespace Core
                     if (value.ToString() != SystemCardReminder)
                     {
                         SystemCardReminder = value.ToString();
+                        OnPropertyChanged();
+                        ModifyConfig(value);
+                    }
+                }
+            }
+
+            private static string HudNotificationDuration = "5";
+            /// <summary>
+            /// Desktop顶部通知胶囊(HUD)的展示时长(秒)，可选范围1-30
+            /// 默认值：5
+            /// </summary>
+            public int _HudNotificationDuration
+            {
+                get => ParseInt(HudNotificationDuration);
+                set
+                {
+                    int clamped = Math.Clamp(value, 1, 30);
+                    if (clamped.ToString() != HudNotificationDuration)
+                    {
+                        HudNotificationDuration = clamped.ToString();
+                        OnPropertyChanged();
+                        ModifyConfig(clamped);
+                    }
+                }
+            }
+
+            private static string HudNotificationMaxCount = "4";
+            /// <summary>
+            /// Desktop顶部通知胶囊(HUD)的最大堆叠数量，超出时最旧的渐隐消失，可选范围1-10
+            /// 默认值：4
+            /// </summary>
+            public int _HudNotificationMaxCount
+            {
+                get => ParseInt(HudNotificationMaxCount);
+                set
+                {
+                    int clamped = Math.Clamp(value, 1, 10);
+                    if (clamped.ToString() != HudNotificationMaxCount)
+                    {
+                        HudNotificationMaxCount = clamped.ToString();
+                        OnPropertyChanged();
+                        ModifyConfig(clamped);
+                    }
+                }
+            }
+
+            private static string UseHudNotification = "true";
+            /// <summary>
+            /// Desktop通知样式  true:顶部通知胶囊(HUD)  false:Windows托盘通知
+            /// 默认值：true
+            /// </summary>
+            public bool _UseHudNotification
+            {
+                get => ParseBool(UseHudNotification);
+                set
+                {
+                    if (value.ToString() != UseHudNotification)
+                    {
+                        UseHudNotification = value.ToString();
                         OnPropertyChanged();
                         ModifyConfig(value);
                     }

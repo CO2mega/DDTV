@@ -9,7 +9,6 @@ using Desktop.Views.Windows.DanMuCanvas.BarrageParameters;
 using LibVLCSharp.Shared;
 using LibVLCSharp.WPF;
 using Microsoft.Extensions.DependencyInjection;
-using Notification.Wpf;
 using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
@@ -55,6 +54,10 @@ namespace Desktop.Views.Windows
         /// 当前窗口弹幕开关状态
         /// </summary>
         private bool DanmaSwitch = false;
+        /// <summary>
+        /// 窗口是否已开始关闭（用于阻止后台任务在Closing退订之后再次订阅事件，与DanmaOnlyWindow同模式）
+        /// </summary>
+        private volatile bool _closed = false;
         /// <summary>
         /// 当前窗口的置顶状态
         /// </summary>
@@ -104,10 +107,15 @@ namespace Desktop.Views.Windows
         /// 首次播放直接复用，避免开窗后重复发起一次取流请求拉长首屏时间；仅首次播放使用，重连仍重新取流
         /// </summary>
         private readonly string _presetStreamUrl;
+        /// <summary>
+        /// 黑听模式（纯音频播放）：media级禁用视频解码渲染，且不连接弹幕
+        /// </summary>
+        private readonly bool _isAudioOnly;
 
-        public VlcPlayWindow(long uid, string presetStreamUrl = null)
+        public VlcPlayWindow(long uid, string presetStreamUrl = null, bool audioOnly = false)
         {
             _presetStreamUrl = presetStreamUrl;
+            _isAudioOnly = audioOnly;
             InitializeComponent();
             vlcPlayModels = new();
             CurrentWindowClarity = Core_RunConfig._DefaultPlayResolution;
@@ -128,8 +136,22 @@ namespace Desktop.Views.Windows
                 return;
             }
 
-            this.Title = $"{roomCard.Name}({roomCard.RoomId}) - {roomCard.Title.Value}";
-            Log.Info(nameof(VlcPlayWindow), $"房间号:[{roomCard.RoomId}],打开播放器");
+            this.Title = $"{roomCard.Name}({roomCard.RoomId}) - {roomCard.Title.Value}{(_isAudioOnly ? " [黑听]" : "")}";
+            Log.Info(nameof(VlcPlayWindow), $"房间号:[{roomCard.RoomId}],打开播放器{(_isAudioOnly ? "(黑听模式)" : "")}");
+
+            if (_isAudioOnly)
+            {
+                //黑听窗口没有视频画面，使用紧凑尺寸并展示纯音频信息面板；隐藏弹幕/全屏相关入口
+                this.Width = 520;
+                this.Height = 300;
+                vlcPlayModels.AudioOnlyRoomText = $"{roomCard.Name} · {roomCard.Title.Value}";
+                vlcPlayModels.OnPropertyChanged("AudioOnlyRoomText");
+                vlcPlayModels.AudioOnlyVisibility = Visibility.Visible;
+                vlcPlayModels.OnPropertyChanged("AudioOnlyVisibility");
+                SwitchDanmaExhibition_Menu.Visibility = Visibility.Collapsed;
+                SwitchDanmaSend_Menu.Visibility = Visibility.Collapsed;
+                FullScreen_MenuItem.Visibility = Visibility.Collapsed;
+            }
 
             _mediaPlayer = new LibVLCSharp.Shared.MediaPlayer(SharedLibVLC);
 
@@ -160,18 +182,22 @@ namespace Desktop.Views.Windows
         {
             //首次播放优先使用调用方预取的流地址（为空时PlaySteam内部会自行取流）
             PlaySteam(_presetStreamUrl);
-            Dispatcher.Invoke(() =>
+            //黑听模式不创建弹幕渲染器、不连接弹幕服务器，彻底省掉弹幕链路开销
+            if (!_isAudioOnly)
             {
-                barrageConfig = new BarrageConfig(DanmaCanvas, this.Width);
-            });
-            if (Core_RunConfig._PlayWindowDanmaSwitch)
-            {
-                SetDanma();
+                Dispatcher.Invoke(() =>
+                {
+                    barrageConfig = new BarrageConfig(DanmaCanvas, this.Width);
+                });
+                if (Core_RunConfig._PlayWindowDanmaSwitch)
+                {
+                    SetDanma();
+                }
+                Dispatcher.Invoke(() =>
+                {
+                    DanmaCanvas.Opacity = Core_RunConfig._PlayWindowDanMuFontOpacity;
+                });
             }
-            Dispatcher.Invoke(() =>
-            {
-                DanmaCanvas.Opacity = Core_RunConfig._PlayWindowDanMuFontOpacity;
-            });
         }
 
         /// <summary>
@@ -237,8 +263,8 @@ namespace Desktop.Views.Windows
                 Thread.Sleep(3000);
                 vlcPlayModels.LoadingVisibility = Visibility.Collapsed;
                 vlcPlayModels.OnPropertyChanged("LoadingVisibility");
-                //初始化宽高比
-                if (!InitializeAspectRatio)
+                //初始化宽高比（黑听模式没有视频轨，跳过）
+                if (!InitializeAspectRatio && !_isAudioOnly)
                 {
                     if (_mediaPlayer != null && _mediaPlayer.Media != null && _mediaPlayer.Media.Tracks.Length > 0)
                     {
@@ -319,16 +345,31 @@ namespace Desktop.Views.Windows
                 {
                     roomCard.DownInfo.LiveChatListener.Connect();
                 }
-                roomCard.DownInfo.LiveChatListener.MessageReceived -= LiveChatListener_MessageReceived;
-                roomCard.DownInfo.LiveChatListener.MessageReceived += LiveChatListener_MessageReceived;
+            });
+            //订阅必须通过Dispatcher在UI线程执行，与Closing中的退订严格串行（本方法也会被InitVlcPlay在线程池线程调用，
+            //await续体不一定回UI线程）：否则可能出现"退订先于订阅"，已关闭窗口被静态事件永久引用无法回收
+            Dispatcher.Invoke(() =>
+            {
+                var listener = roomCard.DownInfo.LiveChatListener;
+                //!DanmaSwitch复查：连接期间用户可能已切走开关
+                if (_closed || !DanmaSwitch || listener == null)
+                {
+                    return;
+                }
+                listener.MessageReceived -= LiveChatListener_MessageReceived;
+                listener.MessageReceived += LiveChatListener_MessageReceived;
                 Core.RuntimeObject.Danmu.DanmaTriggerReconnect -= Instance_DanmaTriggerReconnect;
                 Core.RuntimeObject.Danmu.DanmaTriggerReconnect += Instance_DanmaTriggerReconnect;
-                roomCard.DownInfo.LiveChatListener.Register.Add("VlcPlayWindow");
+                listener.Register.Add("VlcPlayWindow");
             });
         }
 
         private void Instance_DanmaTriggerReconnect(object? sender, RoomCardClass e)
         {
+            if (_closed)
+            {
+                return;
+            }
             if (e.DownInfo.LiveChatListener != null)
             {
                 e.DownInfo.LiveChatListener.MessageReceived -= LiveChatListener_MessageReceived;
@@ -448,7 +489,7 @@ namespace Desktop.Views.Windows
                             {
                                 vlcPlayModels.MessageVisibility = Visibility.Visible;
                                 vlcPlayModels.OnPropertyChanged("MessageVisibility");
-                                vlcPlayModels.MessageText = "直播间已下拨获取地址失败，如需更新请右键刷新";
+                                vlcPlayModels.MessageText = "直播间已下播或获取地址失败，如需更新请右键刷新";
                                 vlcPlayModels.OnPropertyChanged("MessageText");
                                 return;
                             }
@@ -462,6 +503,12 @@ namespace Desktop.Views.Windows
                                 staleMedia.Dispose();
                             }
                             var media = new Media(SharedLibVLC, Url, FromType.FromLocation);
+                            if (_isAudioOnly)
+                            {
+                                //黑听模式：media级禁用视频轨，不解码不渲染只出声音；LibVLC实例为多窗口共享，
+                                //不能加实例级--no-video，必须逐media添加
+                                media.AddOption(":no-video");
+                            }
                             _mediaPlayer.Media = media;
                             if (_mediaPlayer.Play())
                             {
@@ -521,6 +568,8 @@ namespace Desktop.Views.Windows
 
         private void FluentWindow_Closing(object sender, System.ComponentModel.CancelEventArgs e)
         {
+            //置位关闭标志：阻止SetDanma后台任务在本方法退订之后再次订阅（竞态会导致窗口实例泄漏）
+            _closed = true;
             if (_mediaPlayer != null)
             {
                 //先退订播放事件，避免Disposed对象上残留回调
@@ -585,8 +634,8 @@ namespace Desktop.Views.Windows
                 DanmaCanvas.Visibility = Visibility.Visible;
             }
             DateTime now = DateTime.Now;
-            // 检查是否为双击（两次点击间隔小于系统双击时间）
-            if ((now - lastClickTime).TotalMilliseconds <= SystemInformation.DoubleClickTime)
+            // 检查是否为双击（两次点击间隔小于系统双击时间）；黑听窗口无视频画面，不切全屏
+            if (!_isAudioOnly && (now - lastClickTime).TotalMilliseconds <= SystemInformation.DoubleClickTime)
             {
                 ToggleFullScreen();
             }
@@ -617,7 +666,8 @@ namespace Desktop.Views.Windows
             int v = 0;
             if (_mediaPlayer != null)
             {
-                videoView.Dispatcher.Invoke(() => v = _mediaPlayer.Volume);
+                //鼠标滚轮事件本就在UI线程，无需Dispatcher封送
+                v = _mediaPlayer.Volume;
             }
             if (e.Delta > 0)
             {
@@ -847,7 +897,8 @@ namespace Desktop.Views.Windows
                 int v = 0;
                 if (videoView != null && videoView.MediaPlayer != null)
                 {
-                    videoView.Dispatcher.Invoke(() => v = _mediaPlayer.Volume);
+                    //键盘事件本就在UI线程，无需Dispatcher封送
+                    v = _mediaPlayer.Volume;
                 }
                 //音量增加
                 if (e.KeyStates == Keyboard.GetKeyStates(Key.Up))
@@ -874,10 +925,13 @@ namespace Desktop.Views.Windows
                     }
                 }
             }
-            //全屏回车
+            //全屏回车（黑听窗口无视频画面，不切全屏）
             else if (e.KeyStates == Keyboard.GetKeyStates(Key.Enter))
             {
-                FullScreenSwitch();
+                if (!_isAudioOnly)
+                {
+                    FullScreenSwitch();
+                }
             }
             //F5刷新
             else if (e.KeyStates == Keyboard.GetKeyStates(Key.F5))
@@ -893,7 +947,10 @@ namespace Desktop.Views.Windows
         private void Send_Danma_Button_Click(object sender, RoutedEventArgs e)
         {
             string T = DanmaOnly_DanmaInput.Text;
-            if (string.IsNullOrEmpty(T) && T.Length >40 /*Core.Config.Core_RunConfig._MaximumLengthDanmu*/)
+            int maxlen = Core.Config.Core_RunConfig._MaximumLengthDanmu;
+            if (maxlen < 1) maxlen = 40;
+            //为空或超长都不发送（此前&&写反导致守卫完全失效）
+            if (string.IsNullOrEmpty(T) || T.Length > maxlen)
             {
                 return;
             }
@@ -903,13 +960,16 @@ namespace Desktop.Views.Windows
 
         private void DanmaOnly_DanmaInput_TextChanged(object sender, TextChangedEventArgs e)
         {
+            //检测输入框长度，超过长度则截断
             System.Windows.Controls.TextBox? textBox = sender as System.Windows.Controls.TextBox;
             int maxlen = Core.Config.Core_RunConfig._MaximumLengthDanmu;
-            if (textBox != null && textBox.Text.Length > Core.Config.Core_RunConfig._MaximumLengthDanmu)
+            if (maxlen < 1)
+                return;
+            if (textBox != null && textBox.Text.Length > maxlen)
             {
                 int selectionStart = textBox.SelectionStart;
-                textBox.Text = textBox.Text.Substring(0, 20);
-                textBox.SelectionStart = selectionStart > 20 ? 20 : selectionStart;
+                textBox.Text = textBox.Text.Substring(0, maxlen);
+                textBox.SelectionStart = selectionStart > maxlen ? maxlen : selectionStart;
             }
         }
 
@@ -958,14 +1018,7 @@ namespace Desktop.Views.Windows
         {
             Dispatcher.Invoke(() =>
             {
-                MainWindow.notificationManager.Show(new NotificationContent
-                {
-                    Title = Title,
-                    Message = Message,
-                    Type = NotificationType.Success,
-                    Background = (System.Windows.Media.Brush)new BrushConverter().ConvertFromString("#00CC33")
-
-                });
+                HudNotification.Notify("/// PLAYER", Message, Title, HudNotification.HudLevel.Success);
             });
 
         }
@@ -991,7 +1044,10 @@ namespace Desktop.Views.Windows
             if (e.KeyStates == Keyboard.GetKeyStates(Key.Enter))
             {
                 string T = DanmaOnly_DanmaInput.Text;
-                if (string.IsNullOrEmpty(T) && T.Length > 40)
+                int maxlen = Core.Config.Core_RunConfig._MaximumLengthDanmu;
+                if (maxlen < 1) maxlen = 40;
+                //为空或超长都不发送（此前&&写反导致守卫完全失效）
+                if (string.IsNullOrEmpty(T) || T.Length > maxlen)
                 {
                     return;
                 }
