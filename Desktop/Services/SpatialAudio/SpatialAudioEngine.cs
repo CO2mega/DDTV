@@ -9,14 +9,14 @@ using NAudio.Wave;
 namespace Desktop.Services.SpatialAudio
 {
     /// <summary>
-    /// 全局空间音频引擎与 WASAPI 统一混音输出调度器
+    /// 全局空间音频引擎与集中式混音输出调度器
     /// </summary>
     public sealed class SpatialAudioEngine : ISampleProvider
     {
         private static readonly Lazy<SpatialAudioEngine> _instance = new(() => new SpatialAudioEngine());
         public static SpatialAudioEngine Instance => _instance.Value;
 
-        public WaveFormat WaveFormat { get; } = WaveFormat.CreateIeeeFloatWaveFormat(48000, 2);
+        public WaveFormat WaveFormat { get; } = WaveFormat.CreateIeeeFloatWaveFormat(44100, 2);
 
         private readonly ConcurrentDictionary<long, SpatialAudioChannel> _channels = new();
         public ConcurrentDictionary<long, SpatialAudioChannel> Channels => _channels;
@@ -24,8 +24,8 @@ namespace Desktop.Services.SpatialAudio
         // 保存各通道的 LibVLC 回调委托引用，防止被 GC 提前回收导致 native crash
         private readonly ConcurrentDictionary<long, (MediaPlayer.LibVLCAudioPlayCb Play, MediaPlayer.LibVLCAudioPauseCb Pause, MediaPlayer.LibVLCAudioResumeCb Resume, MediaPlayer.LibVLCAudioFlushCb Flush, MediaPlayer.LibVLCAudioDrainCb Drain)> _vlcCallbacks = new();
 
-        private WasapiOut? _wasapiOut;
-        private readonly object _wasapiLock = new();
+        private IWavePlayer? _outputDevice;
+        private readonly object _outputLock = new();
         private bool _isOutputRunning = false;
 
         private float _listenerHeadYaw = 0f;
@@ -75,26 +75,23 @@ namespace Desktop.Services.SpatialAudio
         /// </summary>
         public SpatialAudioChannel RegisterPlayer(MediaPlayer player, long roomId, string title, long uid)
         {
-            EnsureWasapiRunning();
+            EnsureOutputRunning();
 
             var channel = _channels.GetOrAdd(roomId, id =>
             {
                 var newChan = new SpatialAudioChannel(id, title, uid);
-                // 初始位置自适应分布：根据当前已开通道数量在四周合理排布
                 AutoAssignInitialPosition(newChan);
                 return newChan;
             });
 
-            // 保持最新标题与 UID
             channel.Title = title;
             channel.UID = uid;
 
-            // 构造 LibVLC 回调并强引用持有
+            // 构造 LibVLC S16N 回调并强引用持有
             MediaPlayer.LibVLCAudioPlayCb playCb = (data, samples, count, pts) =>
             {
-                // LibVLC 在 FL32 格式下，count 为音频采样帧数，每帧含左右 2 个 float
-                int floatCount = (int)(count * 2);
-                channel.Buffer.Write(samples, floatCount);
+                int sampleCount = (int)(count * 2);
+                channel.Buffer.WriteS16(samples, sampleCount);
             };
 
             MediaPlayer.LibVLCAudioPauseCb pauseCb = (data, pts) => { };
@@ -107,9 +104,9 @@ namespace Desktop.Services.SpatialAudio
 
             _vlcCallbacks[roomId] = (playCb, pauseCb, resumeCb, flushCb, drainCb);
 
-            // 配置 LibVLC 输出格式为 48kHz 32位浮点立体声并挂载回调
-            player.SetAudioFormat("FL32", 48000, 2);
+            // 重要：LibVLC 规范中必须先挂载回调 SetAudioCallbacks，再调用 SetAudioFormat 指定 S16N
             player.SetAudioCallbacks(playCb, pauseCb, resumeCb, flushCb, drainCb);
+            player.SetAudioFormat("S16N", 44100, 2);
 
             ChannelAdded?.Invoke(channel);
             Log.Info(nameof(SpatialAudioEngine), $"已为房间 [{roomId}] 启用空间音频采集通道，初始方位角: {channel.Azimuth:F1}°");
@@ -130,27 +127,22 @@ namespace Desktop.Services.SpatialAudio
                 Log.Info(nameof(SpatialAudioEngine), $"已注销房间 [{roomId}] 空间音频通道");
             }
 
-            // 若所有通道均已关闭，可暂停 WASAPI 输出以彻底节约 CPU
             if (_channels.IsEmpty)
             {
-                StopWasapiIfIdle();
+                StopOutputIfIdle();
             }
         }
 
-        /// <summary>
-        /// 根据已存在通道数量，将新加入的直播间音源均衡散布在前方扇区中
-        /// </summary>
         private void AutoAssignInitialPosition(SpatialAudioChannel newChan)
         {
             int count = _channels.Count;
             if (count == 0)
             {
-                newChan.Azimuth = 0f; // 第一个居中
+                newChan.Azimuth = 0f;
                 newChan.Distance = 1.0f;
             }
             else
             {
-                // 在 -60° ~ +60° 前方扇形区域内交替均匀分布
                 float[] presets = { -35f, 35f, -60f, 60f, -15f, 15f, -80f, 80f, 0f };
                 int idx = (count - 1) % presets.Length;
                 newChan.Azimuth = presets[idx];
@@ -158,58 +150,73 @@ namespace Desktop.Services.SpatialAudio
             }
         }
 
-        private void EnsureWasapiRunning()
+        private void EnsureOutputRunning()
         {
-            lock (_wasapiLock)
+            lock (_outputLock)
             {
-                if (_isOutputRunning && _wasapiOut != null) return;
+                if (_isOutputRunning && _outputDevice != null) return;
 
+                // 优先尝试 WASAPI 输出，若系统声卡或驱动不支持则平滑降级到 100% 兼容的 WaveOut
                 try
                 {
-                    _wasapiOut = new WasapiOut(AudioClientShareMode.Shared, latency: 40);
-                    _wasapiOut.Init(this);
-                    _wasapiOut.Play();
+                    var wasapi = new WasapiOut(AudioClientShareMode.Shared, 50);
+                    wasapi.Init(this);
+                    wasapi.Play();
+                    _outputDevice = wasapi;
                     _isOutputRunning = true;
-                    Log.Info(nameof(SpatialAudioEngine), "WASAPI 空间混音输出引擎启动成功 (共享模式，40ms 延迟)");
+                    Log.Info(nameof(SpatialAudioEngine), "WASAPI 空间混音输出引擎启动成功 (共享模式，50ms 延迟)");
+                    return;
                 }
                 catch (Exception ex)
                 {
-                    Log.Error(nameof(SpatialAudioEngine), "WASAPI 初始化失败，尝试降低延迟配置", ex);
+                    Log.Warn(nameof(SpatialAudioEngine), "WASAPI 模式启动未成功，尝试回退至 WaveOut 输出引擎", ex);
+                }
+
+                try
+                {
+                    var waveOut = new WaveOut();
+                    waveOut.Init(this);
+                    waveOut.Play();
+                    _outputDevice = waveOut;
+                    _isOutputRunning = true;
+                    Log.Info(nameof(SpatialAudioEngine), "WaveOut 混音输出引擎启动成功 (Windows 通用模式)");
+                }
+                catch (Exception ex)
+                {
+                    Log.Error(nameof(SpatialAudioEngine), "音频输出引擎全部初始化失败，请检查默认音频输出设备", ex);
                 }
             }
         }
 
-        private void StopWasapiIfIdle()
+        private void StopOutputIfIdle()
         {
-            lock (_wasapiLock)
+            lock (_outputLock)
             {
-                if (_wasapiOut != null && _channels.IsEmpty)
+                if (_outputDevice != null && _channels.IsEmpty)
                 {
                     try
                     {
-                        _wasapiOut.Stop();
-                        _wasapiOut.Dispose();
-                        _wasapiOut = null;
+                        _outputDevice.Stop();
+                        _outputDevice.Dispose();
+                        _outputDevice = null;
                         _isOutputRunning = false;
-                        Log.Info(nameof(SpatialAudioEngine), "所有空间音频通道已关闭，WASAPI 混音引擎已休眠");
+                        Log.Info(nameof(SpatialAudioEngine), "所有空间音频通道已关闭，混音输出引擎已休眠");
                     }
                     catch (Exception ex)
                     {
-                        Log.Error(nameof(SpatialAudioEngine), "关闭 WASAPI 出现异常", ex);
+                        Log.Error(nameof(SpatialAudioEngine), "关闭音频输出设备异常", ex);
                     }
                 }
             }
         }
 
         /// <summary>
-        /// WASAPI 音频数据消费回调（运行在高优先级音频线程）
+        /// 音频数据消费混音主逻辑（运行在高优先级系统音频渲染线程）
         /// </summary>
         public int Read(float[] buffer, int offset, int count)
         {
-            // 1. 清空主混音缓冲区
             Array.Clear(buffer, offset, count);
 
-            // 2. 遍历各通道进行空间化计算与混音叠加
             float currentHeadYaw = _listenerHeadYaw;
             bool enabled = _isEnabled;
 
@@ -219,8 +226,7 @@ namespace Desktop.Services.SpatialAudio
                 channel.MixTo(buffer, offset, count, currentHeadYaw, enabled);
             }
 
-            // 3. 软削波限制器 (Soft Limiter / Polynomial Saturator)
-            // 保证多房间同时发声叠加时不会产生爆音和数字破音
+            // 软限制器 (防止多路混音累加导致破音削波)
             for (int i = 0; i < count; i++)
             {
                 int idx = offset + i;

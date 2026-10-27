@@ -137,7 +137,7 @@ namespace Desktop.Views.Windows
             var spChan = SpatialAudioEngine.Instance.RegisterPlayer(_mediaPlayer, roomCard.RoomId, roomCard.Name, roomCard.UID);
             if (spChan != null)
             {
-                spChan.Volume = 0.3f;
+                spChan.Volume = 1.0f;
             }
 
             videoView.MediaPlayer = _mediaPlayer;
