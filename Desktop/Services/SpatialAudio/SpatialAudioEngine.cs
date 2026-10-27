@@ -232,6 +232,12 @@ namespace Desktop.Services.SpatialAudio
                 int idx = offset + i;
                 float s = buffer[idx];
 
+                if (float.IsNaN(s) || float.IsInfinity(s))
+                {
+                    buffer[idx] = 0f;
+                    continue;
+                }
+
                 if (s > 0.92f)
                 {
                     buffer[idx] = 0.92f + MathF.Tanh((s - 0.92f) / 0.08f) * 0.08f;
@@ -247,14 +253,22 @@ namespace Desktop.Services.SpatialAudio
 
         public int Read(Span<float> buffer)
         {
-            float[] temp = new float[buffer.Length];
-            int read = Read(temp, 0, temp.Length);
-            temp.AsSpan(0, read).CopyTo(buffer);
-            return read;
+            float[] temp = System.Buffers.ArrayPool<float>.Shared.Rent(buffer.Length);
+            try
+            {
+                int read = Read(temp, 0, buffer.Length);
+                temp.AsSpan(0, read).CopyTo(buffer);
+                return read;
+            }
+            finally
+            {
+                System.Buffers.ArrayPool<float>.Shared.Return(temp);
+            }
         }
 
         private static float NormalizeAngle(float angle)
         {
+            if (float.IsNaN(angle) || float.IsInfinity(angle)) return 0f;
             while (angle > 180f) angle -= 360f;
             while (angle < -180f) angle += 360f;
             return angle;

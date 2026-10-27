@@ -104,11 +104,11 @@ namespace Desktop.Services.SpatialAudio
                     float distGain = 1.0f / (1.0f + 0.6f * (distClamped - 0.5f));
 
                     // 2. 双耳声级差 (ILD - Sine Pan Law)
-                    float sinAngle = MathF.Sin(rad);
-                    float cosAngle = MathF.Cos(rad);
+                    float sinAngle = Math.Clamp(MathF.Sin(rad), -1.0f, 1.0f);
+                    float cosAngle = Math.Clamp(MathF.Cos(rad), -1.0f, 1.0f);
 
-                    float targetGainL = MathF.Sqrt(0.5f * (1.0f - sinAngle)) * distGain * Volume;
-                    float targetGainR = MathF.Sqrt(0.5f * (1.0f + sinAngle)) * distGain * Volume;
+                    float targetGainL = MathF.Sqrt(Math.Max(0f, 0.5f * (1.0f - sinAngle))) * distGain * Volume;
+                    float targetGainR = MathF.Sqrt(Math.Max(0f, 0.5f * (1.0f + sinAngle))) * distGain * Volume;
 
                     // 后方耳廓衰减：若声音在后半球 (cosAngle < 0)，进行轻微衰减（最大衰减约 15%）
                     if (cosAngle < 0f)
@@ -119,10 +119,10 @@ namespace Desktop.Services.SpatialAudio
                     }
 
                     // 3. 双耳时间差 (ITD - Woodworth 球形头部模型近似)
-                    // 48kHz 下最大头部跨越延迟约 30 个采样点 (约 0.62ms)
-                    float maxDelaySamples = 30f;
-                    float targetDelayL = sinAngle > 0f ? sinAngle * maxDelaySamples : 0f;
-                    float targetDelayR = sinAngle < 0f ? -sinAngle * maxDelaySamples : 0f;
+                    // 48kHz 下最大头部跨越延迟约 28 个采样点 (约 0.6ms)
+                    const float maxDelaySamples = 28f;
+                    float targetDelayL = sinAngle > 0f ? Math.Clamp(sinAngle * maxDelaySamples, 0f, maxDelaySamples) : 0f;
+                    float targetDelayR = sinAngle < 0f ? Math.Clamp(-sinAngle * maxDelaySamples, 0f, maxDelaySamples) : 0f;
 
                     // 4. 头影低通滤波系数 (被头部遮挡的远端耳朵高频被吸收)
                     // alpha = 1.0 表示不过滤；alpha 降低表示截止频率降低
@@ -135,6 +135,14 @@ namespace Desktop.Services.SpatialAudio
                         targetAlphaL *= 0.85f;
                         targetAlphaR *= 0.85f;
                     }
+
+                    // 防御性数值校验，防止任何 NaN 污染 DSP 内部状态
+                    if (float.IsNaN(targetGainL)) targetGainL = 0.707f;
+                    if (float.IsNaN(targetGainR)) targetGainR = 0.707f;
+                    if (float.IsNaN(targetDelayL)) targetDelayL = 0f;
+                    if (float.IsNaN(targetDelayR)) targetDelayR = 0f;
+                    if (float.IsNaN(targetAlphaL)) targetAlphaL = 1.0f;
+                    if (float.IsNaN(targetAlphaR)) targetAlphaR = 1.0f;
 
                     int outIdx = offset + (processedFrames * 2);
 
@@ -168,6 +176,9 @@ namespace Desktop.Services.SpatialAudio
                         _filterStateL += _currentFilterAlphaL * (delayedL - _filterStateL);
                         _filterStateR += _currentFilterAlphaR * (delayedR - _filterStateR);
 
+                        if (float.IsNaN(_filterStateL) || float.IsInfinity(_filterStateL)) _filterStateL = 0f;
+                        if (float.IsNaN(_filterStateR) || float.IsInfinity(_filterStateR)) _filterStateR = 0f;
+
                         // 应用最终 ILD 声级增益并累加至主输出
                         masterBuffer[outIdx + i] += _filterStateL * _currentGainL;
                         masterBuffer[outIdx + i + 1] += _filterStateR * _currentGainR;
@@ -178,14 +189,19 @@ namespace Desktop.Services.SpatialAudio
             }
         }
 
-        private float ReadInterpolatedDelay(float[] buffer, int currentIndex, float delay)
+        private static float ReadInterpolatedDelay(float[] buffer, int currentIndex, float delay)
         {
-            float readPos = currentIndex - delay;
-            if (readPos < 0f) readPos += DelayBufferSize;
+            if (float.IsNaN(delay) || float.IsInfinity(delay) || delay < 0f) delay = 0f;
+            else if (delay > DelayBufferSize - 2) delay = DelayBufferSize - 2;
+
+            float readPos = (float)currentIndex - delay;
+            while (readPos < 0f) readPos += DelayBufferSize;
+            while (readPos >= DelayBufferSize) readPos -= DelayBufferSize;
 
             int index0 = (int)readPos;
+            if ((uint)index0 >= (uint)DelayBufferSize) index0 = 0;
             int index1 = (index0 + 1) % DelayBufferSize;
-            float frac = readPos - index0;
+            float frac = Math.Clamp(readPos - index0, 0f, 1f);
 
             return buffer[index0] + frac * (buffer[index1] - buffer[index0]);
         }
@@ -204,6 +220,7 @@ namespace Desktop.Services.SpatialAudio
 
         private static float NormalizeAngle(float angle)
         {
+            if (float.IsNaN(angle) || float.IsInfinity(angle)) return 0f;
             while (angle > 180f) angle -= 360f;
             while (angle < -180f) angle += 360f;
             return angle;

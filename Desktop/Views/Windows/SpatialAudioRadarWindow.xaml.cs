@@ -490,10 +490,17 @@ namespace Desktop.Views.Windows
 
                     double azimuth = Math.Atan2(dx, dy) * (180.0 / Math.PI);
                     double distPixels = Math.Sqrt(dx * dx + dy * dy);
-                    double distance = distPixels / _baseRadiusPixels;
+                    double baseRadius = _baseRadiusPixels > 10f ? _baseRadiusPixels : 100f;
+                    double distance = distPixels / baseRadius;
 
-                    chan.Azimuth = (float)azimuth;
-                    chan.Distance = (float)Math.Clamp(distance, 0.2, 3.0);
+                    if (!double.IsNaN(azimuth) && !double.IsInfinity(azimuth))
+                    {
+                        chan.Azimuth = (float)azimuth;
+                    }
+                    if (!double.IsNaN(distance) && !double.IsInfinity(distance))
+                    {
+                        chan.Distance = (float)Math.Clamp(distance, 0.2, 3.0);
+                    }
 
                     RedrawRadar();
                 }
@@ -554,7 +561,10 @@ namespace Desktop.Views.Windows
             double dy = center.Y - mousePos.Y;
 
             double angleDeg = Math.Atan2(dx, dy) * (180.0 / Math.PI);
-            SpatialAudioEngine.Instance.ListenerHeadYaw = (float)angleDeg;
+            if (!double.IsNaN(angleDeg) && !double.IsInfinity(angleDeg))
+            {
+                SpatialAudioEngine.Instance.ListenerHeadYaw = (float)angleDeg;
+            }
         }
 
         #endregion
